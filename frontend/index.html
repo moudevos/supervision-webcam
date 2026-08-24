@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Supervision Webcam</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="panel">
+        <header class="panel__header">
+          <div>
+            <p class="eyebrow">Módulo 1</p>
+            <h1>Detección de personas</h1>
+          </div>
+          <span id="status" class="status">Cámara apagada</span>
+        </header>
+
+        <div class="camera-stage">
+          <video id="camera" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+
+        <div class="toolbar">
+          <button id="startButton" type="button">Encender cámara</button>
+          <button id="stopButton" type="button" disabled>Detener</button>
+
+          <div class="metrics">
+            <span>Personas: <strong id="peopleCount">0</strong></span>
+            <span>Inferencia: <strong id="inferenceMs">-</strong> ms</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
