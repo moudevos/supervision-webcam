@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 
+from app.behaviors.service import behavior_manager
 from app.core.config import settings
 from app.interactions.service import interaction_manager
 from app.operations.service import operational_manager
@@ -13,6 +14,8 @@ from app.vision.face_registry import face_registry
 from app.vision.identity import identity_manager
 from app.vision.schemas import (
     ActiveInteractionResponse,
+    BehaviorHistoryResponse,
+    BehaviorStatusResponse,
     DetectionResponse,
     FaceRegistrationResponse,
     FaceRegistryResponse,
@@ -30,7 +33,7 @@ from app.vision.tracker import tracker
 from app.zones.service import zone_manager
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.8.0")
+app = FastAPI(title="Supervision Webcam API", version="0.9.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,6 +78,14 @@ def health() -> dict:
             "module_empty_confirm_seconds": settings.module_empty_confirm_seconds,
             "module_zone_names": settings.module_zone_names,
             "counter_zone_names": settings.counter_zone_names,
+        },
+        "behaviors": {
+            "phone_signal_enabled": True,
+            "phone_detection_threshold": settings.phone_detection_threshold,
+            "phone_use_confirm_seconds": settings.phone_use_confirm_seconds,
+            "phone_gap_grace_seconds": settings.phone_use_gap_grace_seconds,
+            "posture_enabled": False,
+            "headphones_enabled": False,
         },
         "calibration": {
             "detection_floor": settings.confidence_threshold,
@@ -190,8 +201,23 @@ def operational_history(
     return OperationalHistoryResponse(**history)
 
 
+@app.get("/api/behaviors/status", response_model=BehaviorStatusResponse)
+def behavior_status() -> BehaviorStatusResponse:
+    return BehaviorStatusResponse(signals=behavior_manager.status())
+
+
+@app.get("/api/behaviors/history", response_model=BehaviorHistoryResponse)
+def behavior_history(
+    incident_limit: int = Query(default=100, ge=1, le=500),
+    event_limit: int = Query(default=200, ge=1, le=500),
+) -> BehaviorHistoryResponse:
+    history = behavior_manager.history(incident_limit, event_limit)
+    return BehaviorHistoryResponse(**history)
+
+
 @app.post("/api/vision/tracking/reset")
 def reset_tracking() -> dict:
+    behavior_manager.reset(reason="camera_reset")
     interaction_manager.reset(reason="camera_reset")
     operational_manager.reset(reason="camera_reset")
     zone_manager.reset(reason="camera_reset")
@@ -213,13 +239,14 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
     image = await decode_upload(file)
     height, width = image.shape[:2]
 
-    detections, inference_ms = detector.detect(image)
+    detections, objects, inference_ms = detector.detect_scene(image)
     tracked_detections = tracker.update(detections)
     track_states = track_state_manager.update(tracked_detections)
     track_states = identity_manager.update(image, tracked_detections, track_states)
     track_states = presence_manager.update(track_states)
     track_states = zone_manager.update(tracked_detections, track_states, width, height)
     track_states = operational_manager.update(track_states, zone_manager.list_zones())
+    track_states = behavior_manager.update(objects, tracked_detections, track_states)
     track_states = interaction_manager.update(
         tracked_detections,
         track_states,
@@ -233,6 +260,7 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
         image_height=height,
         inference_ms=round(inference_ms, 2),
         detections=tracked_detections,
+        objects=objects,
         tracks=track_states,
     )
 
