@@ -233,6 +233,7 @@ class OperationalEmployeeItem(BaseModel):
 
 class OperationalStatusResponse(BaseModel):
     monitored: bool
+    module_armed: bool
     module_zone_names: list[str]
     counter_zone_names: list[str]
     module_empty: bool
