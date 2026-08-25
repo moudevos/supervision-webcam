@@ -93,7 +93,6 @@ class InteractionManager:
                 if active is not None:
                     if active.presence_session_id != observation.presence_session_id:
                         self._close(active, active.last_near_at, "presence_session_changed")
-                        active = None
                     else:
                         self._update_active(active, observation, now, now_monotonic)
                         continue
@@ -163,10 +162,12 @@ class InteractionManager:
             and track.get("status") == "visible"
         ]
 
+        # Candidate identities are deliberately excluded: they may be another
+        # registered employee still waiting for facial confirmation.
         unknown_tracks = [
             track
             for track in track_map.values()
-            if track.get("identity_status") != "confirmed"
+            if track.get("identity_status") == "unknown"
             and track.get("detected_now")
             and track.get("status") == "visible"
         ]
