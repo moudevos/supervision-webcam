@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     zone_history_limit: int = 50
     zone_event_limit: int = 120
 
+    # Interaction detection. Distance is expressed as a fraction of frame width.
+    interaction_distance_threshold: float = 0.18
+    interaction_confirm_seconds: float = 3.0
+    interaction_exit_grace_seconds: float = 2.0
+    interaction_persist_interval_seconds: float = 1.0
+    interaction_history_limit: int = 80
+    interaction_event_limit: int = 160
+
     cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
