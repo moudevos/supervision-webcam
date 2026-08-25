@@ -3,6 +3,7 @@ import "./dashboard.css";
 const API_BASE_URL = "http://localhost:8000";
 const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
+const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
 const REFRESH_MS = 2000;
 
 const summaryDate = document.querySelector("#summaryDate");
@@ -11,6 +12,8 @@ const activeEmployees = document.querySelector("#activeEmployees");
 const detectedEmployees = document.querySelector("#detectedEmployees");
 const totalPresence = document.querySelector("#totalPresence");
 const totalZoneTime = document.querySelector("#totalZoneTime");
+const totalInteractions = document.querySelector("#totalInteractions");
+const totalInteractionTime = document.querySelector("#totalInteractionTime");
 const employeeCount = document.querySelector("#employeeCount");
 const employeeGrid = document.querySelector("#employeeGrid");
 const summaryError = document.querySelector("#summaryError");
@@ -25,9 +28,10 @@ async function refreshSummary() {
   refreshInFlight = true;
 
   try {
-    const [presenceResponse, zoneResponse] = await Promise.all([
+    const [presenceResponse, zoneResponse, interactionResponse] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=1`),
-      fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=1`)
+      fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=1`),
+      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=1`)
     ]);
 
     if (!presenceResponse.ok) {
@@ -36,15 +40,20 @@ async function refreshSummary() {
     if (!zoneResponse.ok) {
       throw new Error(`Historial de zonas: API ${zoneResponse.status}`);
     }
+    if (!interactionResponse.ok) {
+      throw new Error(`Historial de interacciones: API ${interactionResponse.status}`);
+    }
 
-    const [presence, zones] = await Promise.all([
+    const [presence, zones, interactions] = await Promise.all([
       presenceResponse.json(),
-      zoneResponse.json()
+      zoneResponse.json(),
+      interactionResponse.json()
     ]);
 
     const employees = aggregateEmployees(
       presence.sessions ?? [],
       zones.sessions ?? [],
+      interactions.sessions ?? [],
       summaryDate.value
     );
 
@@ -61,7 +70,7 @@ async function refreshSummary() {
   }
 }
 
-function aggregateEmployees(presenceSessions, zoneSessions, dateValue) {
+function aggregateEmployees(presenceSessions, zoneSessions, interactionSessions, dateValue) {
   const bounds = getDayBounds(dateValue);
   const now = new Date();
   const employees = new Map();
@@ -127,6 +136,26 @@ function aggregateEmployees(presenceSessions, zoneSessions, dateValue) {
     }
   }
 
+  for (const session of interactionSessions) {
+    const start = new Date(session.started_at);
+    const rawEnd = session.status === "active"
+      ? now
+      : new Date(session.ended_at ?? session.last_seen_at);
+
+    if (!datesOverlap(start, rawEnd, bounds.start, bounds.end)) continue;
+
+    const item = employees.get(String(session.identity_id));
+    if (!item) continue;
+
+    const clippedStart = new Date(Math.max(start.getTime(), bounds.start.getTime()));
+    const clippedEnd = new Date(Math.min(rawEnd.getTime(), bounds.end.getTime()));
+    const seconds = Math.max(0, (clippedEnd - clippedStart) / 1000);
+
+    item.interactionCount += 1;
+    item.totalInteractionSeconds += seconds;
+    if (session.status === "active") item.activeInteractionCount += 1;
+  }
+
   const result = [...employees.values()].map((item) => ({
     ...item,
     unassignedSeconds: Math.max(0, item.totalPresenceSeconds - item.totalZoneSeconds),
@@ -158,6 +187,9 @@ function getEmployee(map, identityId, identityName) {
       sessionCount: 0,
       totalPresenceSeconds: 0,
       totalZoneSeconds: 0,
+      interactionCount: 0,
+      activeInteractionCount: 0,
+      totalInteractionSeconds: 0,
       currentZoneId: null,
       currentZoneName: null,
       currentZoneEnteredAt: null,
@@ -172,11 +204,15 @@ function renderSummary(employees) {
   const active = employees.filter((employee) => employee.status === "active").length;
   const presenceSeconds = employees.reduce((sum, employee) => sum + employee.totalPresenceSeconds, 0);
   const zoneSeconds = employees.reduce((sum, employee) => sum + employee.totalZoneSeconds, 0);
+  const interactionCount = employees.reduce((sum, employee) => sum + employee.interactionCount, 0);
+  const interactionSeconds = employees.reduce((sum, employee) => sum + employee.totalInteractionSeconds, 0);
 
   activeEmployees.textContent = String(active);
   detectedEmployees.textContent = String(employees.length);
   totalPresence.textContent = formatDuration(presenceSeconds);
   totalZoneTime.textContent = formatDuration(zoneSeconds);
+  totalInteractions.textContent = String(interactionCount);
+  totalInteractionTime.textContent = formatDuration(interactionSeconds);
   employeeCount.textContent = String(employees.length);
   employeeGrid.replaceChildren();
 
@@ -210,15 +246,22 @@ function createEmployeeCard(employee) {
 
   const currentZone = document.createElement("p");
   currentZone.className = "employee-current-zone";
-  currentZone.textContent = employee.status === "active"
-    ? `Zona actual: ${employee.currentZoneName ?? "Sin zona"}`
-    : "Sin presencia activa";
+  if (employee.status === "active") {
+    const interactionText = employee.activeInteractionCount > 0
+      ? ` · ${employee.activeInteractionCount} interacción${employee.activeInteractionCount === 1 ? "" : "es"} activa${employee.activeInteractionCount === 1 ? "" : "s"}`
+      : "";
+    currentZone.textContent = `Zona actual: ${employee.currentZoneName ?? "Sin zona"}${interactionText}`;
+  } else {
+    currentZone.textContent = "Sin presencia activa";
+  }
 
   const details = document.createElement("div");
   details.className = "employee-details";
   details.append(
     createDetail("Presencia", formatDuration(employee.totalPresenceSeconds)),
     createDetail("Tiempo en zonas", formatDuration(employee.totalZoneSeconds)),
+    createDetail("Interacciones", String(employee.interactionCount)),
+    createDetail("Tiempo interacción", formatDuration(employee.totalInteractionSeconds)),
     createDetail("Primera detección", formatClock(employee.firstSeen)),
     createDetail("Última detección", employee.status === "active" ? "Ahora" : formatClock(employee.lastSeen)),
     createDetail("Sesiones", String(employee.sessionCount)),
