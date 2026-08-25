@@ -4,6 +4,7 @@ const API_BASE_URL = "http://localhost:8000";
 const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
 const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
+const OPERATIONAL_HISTORY_URL = `${API_BASE_URL}/api/operations/history`;
 const REFRESH_MS = 3000;
 
 const historyDate = document.querySelector("#historyDate");
@@ -12,16 +13,19 @@ const historyRefreshStatus = document.querySelector("#historyRefreshStatus");
 const presenceSessionCount = document.querySelector("#presenceSessionCount");
 const zoneSessionCount = document.querySelector("#zoneSessionCount");
 const interactionSessionCount = document.querySelector("#interactionSessionCount");
+const operationalIncidentCount = document.querySelector("#operationalIncidentCount");
 const eventCount = document.querySelector("#eventCount");
 const presenceTableBody = document.querySelector("#presenceTableBody");
 const zoneTableBody = document.querySelector("#zoneTableBody");
 const interactionTableBody = document.querySelector("#interactionTableBody");
+const operationalTableBody = document.querySelector("#operationalTableBody");
 const timelineList = document.querySelector("#timelineList");
 const historyError = document.querySelector("#historyError");
 
 let presenceData = { sessions: [], events: [] };
 let zoneData = { sessions: [], events: [] };
 let interactionData = { sessions: [], events: [] };
+let operationalData = { incidents: [], events: [] };
 let refreshInFlight = false;
 
 historyDate.value = localDateValue(new Date());
@@ -33,26 +37,28 @@ async function refreshHistory() {
   refreshInFlight = true;
 
   try {
-    const [presenceResponse, zoneResponse, interactionResponse] = await Promise.all([
+    const [presenceResponse, zoneResponse, interactionResponse, operationalResponse] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=500`),
       fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=500`),
-      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=500`)
+      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=500`),
+      fetch(`${OPERATIONAL_HISTORY_URL}?incident_limit=500&event_limit=500`)
     ]);
 
-    if (!presenceResponse.ok) {
-      throw new Error(`Historial de presencia: API ${presenceResponse.status}`);
-    }
-    if (!zoneResponse.ok) {
-      throw new Error(`Historial de zonas: API ${zoneResponse.status}`);
-    }
-    if (!interactionResponse.ok) {
-      throw new Error(`Historial de interacciones: API ${interactionResponse.status}`);
+    const responses = [
+      [presenceResponse, "Historial de presencia"],
+      [zoneResponse, "Historial de zonas"],
+      [interactionResponse, "Historial de interacciones"],
+      [operationalResponse, "Historial operativo"]
+    ];
+    for (const [response, label] of responses) {
+      if (!response.ok) throw new Error(`${label}: API ${response.status}`);
     }
 
-    [presenceData, zoneData, interactionData] = await Promise.all([
+    [presenceData, zoneData, interactionData, operationalData] = await Promise.all([
       presenceResponse.json(),
       zoneResponse.json(),
-      interactionResponse.json()
+      interactionResponse.json(),
+      operationalResponse.json()
     ]);
 
     refreshEmployeeFilter();
@@ -119,6 +125,9 @@ function renderHistory() {
   const interactionSessions = (interactionData.sessions ?? []).filter((session) =>
     matchesSession(session, identityId, bounds, "started_at", "ended_at", "last_seen_at")
   );
+  const operationalIncidents = (operationalData.incidents ?? []).filter((incident) =>
+    matchesOperationalIncident(incident, bounds)
+  );
 
   const presenceEvents = (presenceData.events ?? [])
     .filter((event) => matchesEvent(event, identityId, bounds))
@@ -129,19 +138,29 @@ function renderHistory() {
   const interactionEvents = (interactionData.events ?? [])
     .filter((event) => matchesEvent(event, identityId, bounds))
     .map((event) => ({ ...event, source: "interaction" }));
+  const operationalEvents = identityId
+    ? []
+    : (operationalData.events ?? [])
+      .filter((event) => matchesOperationalEvent(event, bounds))
+      .map((event) => ({ ...event, source: "operation" }));
 
-  const events = [...presenceEvents, ...zoneEvents, ...interactionEvents].sort(
-    (a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)
-  );
+  const events = [
+    ...presenceEvents,
+    ...zoneEvents,
+    ...interactionEvents,
+    ...operationalEvents
+  ].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
 
   renderPresenceTable(presenceSessions);
   renderZoneTable(zoneSessions);
   renderInteractionTable(interactionSessions);
+  renderOperationalTable(operationalIncidents, Boolean(identityId));
   renderTimeline(events);
 
   presenceSessionCount.textContent = String(presenceSessions.length);
   zoneSessionCount.textContent = String(zoneSessions.length);
   interactionSessionCount.textContent = String(interactionSessions.length);
+  operationalIncidentCount.textContent = identityId ? "-" : String(operationalIncidents.length);
   eventCount.textContent = String(events.length);
 }
 
@@ -214,6 +233,37 @@ function renderInteractionTable(sessions) {
   }
 }
 
+function renderOperationalTable(incidents, employeeFiltered) {
+  operationalTableBody.replaceChildren();
+
+  if (employeeFiltered) {
+    appendEmptyRow(
+      operationalTableBody,
+      6,
+      "Las incidencias del módulo son globales. Selecciona 'Todos' para mostrarlas."
+    );
+    return;
+  }
+
+  if (incidents.length === 0) {
+    appendEmptyRow(operationalTableBody, 6, "Sin incidencias operativas para esta fecha.");
+    return;
+  }
+
+  for (const incident of incidents) {
+    const row = document.createElement("tr");
+    row.append(
+      createCell(incidentLabel(incident.incident_type)),
+      createCell(formatDateTime(incident.started_at)),
+      createCell(formatDateTime(incident.confirmed_at)),
+      createCell(incident.status === "active" ? "Ahora" : formatDateTime(incident.ended_at)),
+      createCell(formatDuration(effectiveOperationalDuration(incident))),
+      createStatusCell(incident.status)
+    );
+    operationalTableBody.appendChild(row);
+  }
+}
+
 function renderTimeline(events) {
   timelineList.replaceChildren();
 
@@ -246,6 +296,8 @@ function renderTimeline(events) {
         ?? (event.other_tracker_id == null ? "persona" : `Persona ID ${event.other_tracker_id}`);
       const zone = event.zone_name ? ` · ${event.zone_name}` : "";
       description.textContent = `${event.identity_name} ↔ ${other}${zone}`;
+    } else if (event.source === "operation") {
+      description.textContent = incidentLabel(event.incident_type);
     } else {
       description.textContent = `${event.identity_name}${event.tracker_id == null ? "" : ` · ID ${event.tracker_id}`}`;
     }
@@ -272,11 +324,32 @@ function matchesEvent(event, identityId, bounds) {
   return occurred >= bounds.start && occurred < bounds.end;
 }
 
+function matchesOperationalIncident(incident, bounds) {
+  const start = new Date(incident.started_at);
+  const end = incident.status === "active"
+    ? new Date()
+    : new Date(incident.ended_at ?? incident.confirmed_at);
+  return start < bounds.end && end >= bounds.start;
+}
+
+function matchesOperationalEvent(event, bounds) {
+  const occurred = new Date(event.occurred_at);
+  return occurred >= bounds.start && occurred < bounds.end;
+}
+
 function effectiveDuration(session, startKey, endKey, fallbackEndKey) {
   const start = new Date(session[startKey]);
   const end = session.status === "active"
     ? new Date()
     : new Date(session[endKey] ?? session[fallbackEndKey]);
+  return Math.max(0, (end - start) / 1000);
+}
+
+function effectiveOperationalDuration(incident) {
+  const start = new Date(incident.started_at);
+  const end = incident.status === "active"
+    ? new Date()
+    : new Date(incident.ended_at ?? incident.confirmed_at);
   return Math.max(0, (end - start) / 1000);
 }
 
@@ -316,9 +389,16 @@ function eventLabel(type) {
     ENTER_ZONE: "Entrada zona",
     EXIT_ZONE: "Salida zona",
     INTERACTION_START: "Interacción inicia",
-    INTERACTION_END: "Interacción termina"
+    INTERACTION_END: "Interacción termina",
+    MODULE_ABANDONED_START: "Abandono inicia",
+    MODULE_ABANDONED_END: "Abandono termina"
   };
   return labels[type] ?? type;
+}
+
+function incidentLabel(type) {
+  if (type === "MODULE_ABANDONED") return "Módulo abandonado";
+  return type;
 }
 
 function getDayBounds(value) {
