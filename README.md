@@ -1,6 +1,6 @@
 # Supervision Webcam
 
-MVP web local para detección, tracking temporal, reconocimiento facial e historial de presencia desde la cámara del navegador.
+MVP web local para detección, tracking temporal, reconocimiento facial, presencia y permanencia por zonas desde la cámara del navegador.
 
 ## Alcance actual
 
@@ -17,9 +17,13 @@ El proyecto ya implementa:
 9. Asociación `tracker_id -> identidad` mediante varias coincidencias consecutivas.
 10. Historial persistente de presencia con SQLite.
 11. Eventos `ENTER`, `IDENTIFIED`, `LOST`, `RETURNED` y `EXIT`.
-12. UI con sesiones activas y sesiones recientes.
+12. Configuración visual de zonas poligonales sobre la cámara.
+13. Coordenadas de zona normalizadas de `0..1`.
+14. Detección de zona usando el punto inferior-central del bounding box.
+15. Sesiones de permanencia por zona con eventos `ENTER_ZONE` y `EXIT_ZONE`.
+16. UI con zona actual y tiempo de permanencia por persona.
 
-Todavía no incluye zonas, métricas de actividad/interacción ni IA generativa.
+Todavía no incluye métricas de interacción persona-persona, clasificación de actividad ni IA generativa.
 
 ## Arquitectura
 
@@ -41,12 +45,16 @@ FastAPI / Python
       |                               PresenceManager
       |                                      |
       |                                      v
-      |                               SQLite presence.db
-      v
-JSON detections + tracks + identity + presence session
-      |
-      v
-Canvas + panel + historial
+      |                                  ZoneManager
+      |                                      |
+      +--------------------------------------+
+                                             |
+                                             v
+                                      SQLite presence.db
+                                             |
+                                             +--> presence sessions/events
+                                             +--> zones
+                                             +--> zone sessions/events
 ```
 
 ## Requisitos
@@ -117,7 +125,7 @@ Cuando una identidad queda confirmada, se abre una sesión vinculada a su `ident
 
 ```text
 Mauricio
-  identity_id = empleado estable
+  identity_id = identidad estable
   tracker_id  = trayectoria temporal de ByteTrack
 ```
 
@@ -137,20 +145,61 @@ RETURNED
 EXIT
 ```
 
-Reglas actuales:
-
-- Una pérdida breve mantiene la misma sesión.
-- Al pasar a `lost`, se registra `LOST` una sola vez.
-- Si vuelve antes de salir definitivamente, se registra `RETURNED` y continúa la sesión.
-- Cuando el track pasa a `out`, se cierra la sesión con `EXIT`.
-- Si vuelve después de cerrarse, el reconocimiento puede crear una nueva sesión para la misma identidad aunque ByteTrack use otro ID.
-- Al detener/reiniciar la cámara se cierran las sesiones activas.
-- Si el backend se reinicia de forma inesperada, las sesiones que quedaron abiertas se recuperan y se cierran usando su última detección conocida.
-
 Historial API:
 
 ```text
 GET /api/presence/history?session_limit=30&event_limit=80
+```
+
+## Zonas
+
+Las zonas se dibujan desde la interfaz:
+
+1. Enciende la cámara.
+2. Escribe un nombre, por ejemplo `Atención`.
+3. Pulsa `Dibujar zona`.
+4. Marca al menos 3 puntos sobre la cámara.
+5. Pulsa `Guardar`.
+
+El frontend convierte los clics a coordenadas normalizadas. Por ejemplo:
+
+```json
+[
+  [0.10, 0.30],
+  [0.40, 0.30],
+  [0.42, 0.90],
+  [0.08, 0.90]
+]
+```
+
+Así el polígono no depende de que la cámara esté a 1280x720 o 1920x1080.
+
+La posición de una persona no usa el centro del torso. Se usa el punto inferior-central del bounding box:
+
+```text
+┌────────────┐
+│   persona  │
+│            │
+└─────●──────┘
+      posición
+```
+
+Cuando una identidad con sesión de presencia entra en una zona, se abre una `zone_session`. Al cambiar de zona o salir, se cierra y se registra el evento correspondiente.
+
+```text
+ENTER_ZONE
+EXIT_ZONE
+```
+
+Las zonas desactivadas dejan de participar en detección, pero sus sesiones históricas se conservan.
+
+API:
+
+```text
+GET  /api/zones
+POST /api/zones
+POST /api/zones/{zone_id}/delete
+GET  /api/zones/history?session_limit=50&event_limit=120
 ```
 
 ## Modelos y licencias
@@ -164,4 +213,4 @@ Los pesos ONNX y los datos biométricos/runtime no se versionan en Git.
 
 ## Siguiente módulo
 
-El siguiente paso natural es definir zonas de interés y medir permanencia por zona usando la identidad ya confirmada y las sesiones persistentes.
+Después de validar zonas y permanencia, el siguiente paso es interacción: proximidad entre personas, duración de atención, ocupación por zona y eventos persona-persona.
