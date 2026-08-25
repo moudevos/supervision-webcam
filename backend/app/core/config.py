@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     presence_history_limit: int = 30
     presence_event_limit: int = 80
 
+    # Zone persistence and dwell metrics.
+    zone_persist_interval_seconds: float = 1.0
+    zone_history_limit: int = 50
+    zone_event_limit: int = 120
+
     cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
