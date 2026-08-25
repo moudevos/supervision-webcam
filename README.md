@@ -1,6 +1,6 @@
 # Supervision Webcam
 
-MVP web local para detección, tracking temporal, reconocimiento facial, presencia y permanencia por zonas desde la cámara del navegador.
+MVP web local para detección, tracking temporal, reconocimiento facial, presencia, zonas e interacciones desde la cámara del navegador.
 
 ## Alcance actual
 
@@ -21,9 +21,12 @@ El proyecto ya implementa:
 13. Coordenadas de zona normalizadas de `0..1`.
 14. Detección de zona usando el punto inferior-central del bounding box.
 15. Sesiones de permanencia por zona con eventos `ENTER_ZONE` y `EXIT_ZONE`.
-16. UI con zona actual y tiempo de permanencia por persona.
+16. Pantallas separadas de cámara, resumen operativo e historial.
+17. Detección temporal de interacción empleado-persona desconocida.
+18. Persistencia de sesiones y eventos de interacción.
+19. Métricas de distancia mínima/promedio y duración de interacción.
 
-Todavía no incluye métricas de interacción persona-persona, clasificación de actividad ni IA generativa.
+Todavía no incluye clasificación de actividad/postura, ReID de clientes ni IA generativa.
 
 ## Arquitectura
 
@@ -47,14 +50,17 @@ FastAPI / Python
       |                                      v
       |                                  ZoneManager
       |                                      |
+      |                                      v
+      |                              InteractionManager
+      |                                      |
       +--------------------------------------+
                                              |
                                              v
                                       SQLite presence.db
                                              |
                                              +--> presence sessions/events
-                                             +--> zones
-                                             +--> zone sessions/events
+                                             +--> zones + zone sessions/events
+                                             +--> interaction sessions/events
 ```
 
 ## Requisitos
@@ -99,10 +105,12 @@ npm install
 npm run dev
 ```
 
-Abrir:
+Vistas:
 
 ```text
-http://localhost:5173
+http://localhost:5173/               cámara
+http://localhost:5173/summary.html   resumen operativo
+http://localhost:5173/history.html   historial
 ```
 
 ## Registro facial
@@ -153,28 +161,7 @@ GET /api/presence/history?session_limit=30&event_limit=80
 
 ## Zonas
 
-Las zonas se dibujan desde la interfaz:
-
-1. Enciende la cámara.
-2. Escribe un nombre, por ejemplo `Atención`.
-3. Pulsa `Dibujar zona`.
-4. Marca al menos 3 puntos sobre la cámara.
-5. Pulsa `Guardar`.
-
-El frontend convierte los clics a coordenadas normalizadas. Por ejemplo:
-
-```json
-[
-  [0.10, 0.30],
-  [0.40, 0.30],
-  [0.42, 0.90],
-  [0.08, 0.90]
-]
-```
-
-Así el polígono no depende de que la cámara esté a 1280x720 o 1920x1080.
-
-La posición de una persona no usa el centro del torso. Se usa el punto inferior-central del bounding box:
+Las zonas se dibujan desde la interfaz y se almacenan como coordenadas normalizadas. La posición de una persona usa el punto inferior-central del bounding box:
 
 ```text
 ┌────────────┐
@@ -184,7 +171,7 @@ La posición de una persona no usa el centro del torso. Se usa el punto inferior
       posición
 ```
 
-Cuando una identidad con sesión de presencia entra en una zona, se abre una `zone_session`. Al cambiar de zona o salir, se cierra y se registra el evento correspondiente.
+Cuando una identidad con sesión de presencia entra en una zona, se abre una `zone_session`. Al cambiar de zona o salir, se cierra y se registra:
 
 ```text
 ENTER_ZONE
@@ -202,6 +189,69 @@ POST /api/zones/{zone_id}/delete
 GET  /api/zones/history?session_limit=50&event_limit=120
 ```
 
+## Interacciones
+
+El módulo de interacción trabaja después de reconocimiento, presencia y zonas.
+
+La primera versión registra únicamente:
+
+```text
+empleado reconocido <-> persona desconocida
+```
+
+No cuenta todavía interacciones entre dos empleados reconocidos. Un track con identidad facial todavía en estado `candidate` tampoco se trata como cliente potencial.
+
+La distancia se calcula entre los puntos inferiores de ambos bounding boxes y se expresa como fracción del ancho del frame. Configuración inicial:
+
+```text
+distancia máxima       0.18 del ancho del frame
+confirmación           3.0 segundos cerca
+tolerancia de salida   2.0 segundos
+```
+
+Por tanto, cruzarse frente a otro track durante un instante no crea una interacción. Solo al mantener proximidad durante el tiempo de confirmación se crea una sesión persistente.
+
+La sesión guarda:
+
+```text
+presence_session_id
+identity_id del empleado
+employee_tracker_id
+other_tracker_id
+zona
+inicio de proximidad
+momento de confirmación
+última proximidad
+fin
+duración
+distancia mínima
+distancia promedio
+cantidad de muestras
+```
+
+Eventos:
+
+```text
+INTERACTION_START
+INTERACTION_END
+```
+
+API:
+
+```text
+GET /api/interactions/active
+GET /api/interactions/history?session_limit=80&event_limit=160
+```
+
+Los tracks reconocidos devueltos por `/api/vision/detect` incluyen además:
+
+```text
+interaction_candidate_count
+active_interactions[]
+```
+
+Limitación actual: una persona desconocida sigue vinculada a su `tracker_id`. Si ByteTrack pierde definitivamente ese ID y crea otro, todavía no existe ReID para unir ambas apariciones como la misma persona.
+
 ## Modelos y licencias
 
 - YOLOX: Apache 2.0.
@@ -213,4 +263,4 @@ Los pesos ONNX y los datos biométricos/runtime no se versionan en Git.
 
 ## Siguiente módulo
 
-Después de validar zonas y permanencia, el siguiente paso es interacción: proximidad entre personas, duración de atención, ocupación por zona y eventos persona-persona.
+Después de calibrar interacciones, el siguiente backend será métricas operativas agregadas y posteriormente clasificación de actividad/postura.
