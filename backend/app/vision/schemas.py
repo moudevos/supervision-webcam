@@ -12,6 +12,13 @@ class DetectionItem(BaseModel):
     tracker_id: int | None = None
 
 
+class SceneObjectItem(BaseModel):
+    class_name: str
+    class_id: int
+    confidence: float = Field(ge=0.0, le=1.0)
+    box: tuple[float, float, float, float]
+
+
 class InteractionLiveItem(BaseModel):
     interaction_session_id: int
     other_tracker_id: int
@@ -49,6 +56,10 @@ class TrackStateItem(BaseModel):
     person_height_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     in_operational_module: bool = False
     at_counter: bool = False
+    phone_visible_now: bool = False
+    phone_visible_seconds: float = Field(default=0.0, ge=0.0)
+    phone_use_long: bool = False
+    phone_incident_id: int | None = None
     interaction_candidate_count: int = Field(default=0, ge=0)
     active_interactions: list[InteractionLiveItem] = Field(default_factory=list)
 
@@ -59,6 +70,7 @@ class DetectionResponse(BaseModel):
     image_height: int
     inference_ms: float
     detections: list[DetectionItem]
+    objects: list[SceneObjectItem] = Field(default_factory=list)
     tracks: list[TrackStateItem]
 
 
@@ -257,3 +269,52 @@ class OperationalEventItem(BaseModel):
 class OperationalHistoryResponse(BaseModel):
     incidents: list[OperationalIncidentItem]
     events: list[OperationalEventItem]
+
+
+class BehaviorLiveItem(BaseModel):
+    behavior_type: Literal["PHONE_USE_LONG"]
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    phone_visible_seconds: float = Field(ge=0.0)
+    phone_visible_now: bool
+    incident_id: int | None = None
+    confirmed: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class BehaviorStatusResponse(BaseModel):
+    signals: list[BehaviorLiveItem]
+
+
+class BehaviorIncidentItem(BaseModel):
+    id: int
+    behavior_type: Literal["PHONE_USE_LONG"]
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    started_at: datetime
+    confirmed_at: datetime
+    last_seen_at: datetime
+    ended_at: datetime | None = None
+    duration_seconds: float = Field(ge=0.0)
+    status: Literal["active", "closed"]
+    close_reason: str | None = None
+    details: dict[str, Any] | None = None
+
+
+class BehaviorEventItem(BaseModel):
+    id: int
+    incident_id: int
+    behavior_type: Literal["PHONE_USE_LONG"]
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    event_type: Literal["PHONE_USE_LONG_START", "PHONE_USE_LONG_END"]
+    occurred_at: datetime
+    details: dict[str, Any] | None = None
+
+
+class BehaviorHistoryResponse(BaseModel):
+    incidents: list[BehaviorIncidentItem]
+    events: list[BehaviorEventItem]
