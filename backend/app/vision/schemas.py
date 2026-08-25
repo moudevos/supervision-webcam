@@ -6,6 +6,7 @@ class DetectionItem(BaseModel):
     class_id: int
     confidence: float = Field(ge=0.0, le=1.0)
     box: tuple[float, float, float, float]
+    tracker_id: int | None = None
 
 
 class DetectionResponse(BaseModel):
