@@ -7,6 +7,9 @@ backend/**/__pycache__/
 # Models
 backend/models/*.onnx
 
+# Local biometric registry / runtime data
+backend/data/face_registry.json
+
 # Environment
 .env
 backend/.env
