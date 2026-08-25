@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
 
+from app.core.config import settings
+
 
 @dataclass
 class TrackState:
@@ -20,9 +22,9 @@ class TrackStateManager:
 
     def __init__(
         self,
-        visible_grace_seconds: float = 2.0,
-        lost_threshold_seconds: float = 5.0,
-        retention_seconds: float = 15.0,
+        visible_grace_seconds: float,
+        lost_threshold_seconds: float,
+        retention_seconds: float,
     ) -> None:
         self.visible_grace_seconds = visible_grace_seconds
         self.lost_threshold_seconds = lost_threshold_seconds
@@ -110,4 +112,8 @@ class TrackStateManager:
             del self._tracks[tracker_id]
 
 
-track_state_manager = TrackStateManager()
+track_state_manager = TrackStateManager(
+    visible_grace_seconds=settings.track_visible_grace_seconds,
+    lost_threshold_seconds=settings.track_lost_threshold_seconds,
+    retention_seconds=settings.track_retention_seconds,
+)
