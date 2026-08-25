@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     module_empty_confirm_seconds: float = 30.0
     operational_history_limit: int = 100
 
+    # Experimental phone signal using the COCO `cell phone` class already
+    # available in the YOLOX model. This is a proxy, not proof of misuse.
+    phone_detection_threshold: float = 0.20
+    phone_association_margin_ratio: float = 0.08
+    phone_use_confirm_seconds: float = 600.0
+    phone_use_gap_grace_seconds: float = 5.0
+    behavior_history_limit: int = 100
+    behavior_event_limit: int = 200
+
     cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
