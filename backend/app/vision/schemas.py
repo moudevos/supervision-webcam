@@ -21,6 +21,10 @@ class TrackStateItem(BaseModel):
     session_seconds: float = Field(ge=0.0)
     last_seen_seconds_ago: float = Field(ge=0.0)
     detected_now: bool
+    identity_status: Literal["unknown", "candidate", "confirmed"] = "unknown"
+    identity_id: str | None = None
+    identity_name: str | None = None
+    identity_score: float | None = None
 
 
 class DetectionResponse(BaseModel):
@@ -30,3 +34,20 @@ class DetectionResponse(BaseModel):
     inference_ms: float
     detections: list[DetectionItem]
     tracks: list[TrackStateItem]
+
+
+class FaceRegistrationResponse(BaseModel):
+    identity_id: str
+    name: str
+    sample_count: int
+
+
+class FaceIdentityItem(BaseModel):
+    identity_id: str
+    name: str
+    sample_count: int
+
+
+class FaceRegistryResponse(BaseModel):
+    ready: bool
+    identities: list[FaceIdentityItem]
