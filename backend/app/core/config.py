@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     zone_history_limit: int = 50
     zone_event_limit: int = 120
 
+    # Perspective guard. A very small person is normally in the distant
+    # background and must not activate a foreground operational zone.
+    zone_min_person_height_ratio: float = 0.08
+
     # Interaction detection. Distance is expressed as a fraction of frame width.
     interaction_distance_threshold: float = 0.18
     interaction_confirm_seconds: float = 3.0
@@ -54,6 +58,13 @@ class Settings(BaseSettings):
     interaction_persist_interval_seconds: float = 1.0
     interaction_history_limit: int = 80
     interaction_event_limit: int = 160
+
+    # Operational supervision. Empty module-zone list means all active zones
+    # form the operational module. Counter zones are explicit by name.
+    operational_module_zone_names: str = ""
+    operational_counter_zone_names: str = "counter,mostrador"
+    module_empty_confirm_seconds: float = 30.0
+    operational_history_limit: int = 100
 
     cors_origins: str = "http://localhost:5173"
 
@@ -90,6 +101,22 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def module_zone_names(self) -> list[str]:
+        return [
+            name.strip()
+            for name in self.operational_module_zone_names.split(",")
+            if name.strip()
+        ]
+
+    @property
+    def counter_zone_names(self) -> list[str]:
+        return [
+            name.strip()
+            for name in self.operational_counter_zone_names.split(",")
+            if name.strip()
+        ]
 
 
 settings = Settings()
