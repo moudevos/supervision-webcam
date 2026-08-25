@@ -1,32 +1,36 @@
 # Supervision Webcam
 
-MVP web local para detección, tracking temporal, reconocimiento facial, presencia, zonas e interacciones desde la cámara del navegador.
+MVP web local para detección, tracking temporal, reconocimiento facial, presencia, zonas, interacciones y supervisión operativa desde la cámara del navegador.
 
 ## Alcance actual
 
-El proyecto ya implementa:
+El proyecto implementa:
 
 1. Webcam desde el navegador.
-2. Detección de personas con YOLOX Nano ONNX.
+2. Detección con YOLOX Nano ONNX.
 3. Tracking temporal con Supervision + ByteTrack.
 4. Estados `visible`, `lost` y `out` por `tracker_id`.
-5. Tiempo temporal por track.
-6. Registro facial local.
-7. Detección facial con YuNet.
-8. Embeddings y comparación facial con SFace.
-9. Asociación `tracker_id -> identidad` mediante varias coincidencias consecutivas.
-10. Historial persistente de presencia con SQLite.
-11. Eventos `ENTER`, `IDENTIFIED`, `LOST`, `RETURNED` y `EXIT`.
-12. Configuración visual de zonas poligonales sobre la cámara.
-13. Coordenadas de zona normalizadas de `0..1`.
-14. Detección de zona usando el punto inferior-central del bounding box.
-15. Sesiones de permanencia por zona con eventos `ENTER_ZONE` y `EXIT_ZONE`.
-16. Pantallas separadas de cámara, resumen operativo e historial.
-17. Detección temporal de interacción empleado-persona desconocida.
-18. Persistencia de sesiones y eventos de interacción.
-19. Métricas de distancia mínima/promedio y duración de interacción.
+5. Registro y reconocimiento facial local con YuNet + SFace.
+6. Asociación `tracker_id -> identidad`.
+7. Presencia persistente e historial SQLite.
+8. Zonas poligonales normalizadas.
+9. Permanencia por zona.
+10. Filtro de perspectiva por tamaño relativo de persona.
+11. Interacciones temporales empleado-persona desconocida.
+12. Resumen e historial en pantallas separadas.
+13. Estado operativo del módulo.
+14. Detección de módulo vacío/abandonado.
+15. Presencia y tiempo en zona de counter cuando se configura una zona correspondiente.
+16. Señal experimental de celular asociada a empleados reconocidos.
+17. Incidencia `PHONE_USE_LONG` después del umbral configurado, 10 minutos por defecto.
 
-Todavía no incluye clasificación de actividad/postura, ReID de clientes ni IA generativa.
+No están implementados todavía:
+
+- estimación de pose/postura;
+- detección fiable de audífonos;
+- ReID persistente de clientes;
+- homografía/calibración métrica del piso;
+- IA generativa.
 
 ## Arquitectura
 
@@ -40,27 +44,28 @@ Vite + JavaScript
       v
 FastAPI / Python
       |
-      +--> YOLOX Nano --> ByteTrack --> TrackStateManager
+      +--> YOLOX Nano ----------------------+--> cell phone signal
+      |         |
+      |         +--> person --> ByteTrack --> TrackStateManager
       |
-      +--> YuNet --> SFace --> FaceRegistry --> IdentityManager
-      |                                      |
-      |                                      v
-      |                               PresenceManager
-      |                                      |
-      |                                      v
-      |                                  ZoneManager
-      |                                      |
-      |                                      v
-      |                              InteractionManager
-      |                                      |
-      +--------------------------------------+
-                                             |
-                                             v
-                                      SQLite presence.db
-                                             |
-                                             +--> presence sessions/events
-                                             +--> zones + zone sessions/events
-                                             +--> interaction sessions/events
+      +--> YuNet --> SFace --> IdentityManager
+                              |
+                              v
+                       PresenceManager
+                              |
+                              v
+                          ZoneManager
+                              |
+                +-------------+-------------+
+                |                           |
+                v                           v
+        OperationalManager          InteractionManager
+                |
+                v
+         BehaviorManager
+                |
+                v
+        SQLite presence.db
 ```
 
 ## Requisitos
@@ -85,12 +90,6 @@ python scripts/download_model.py
 uvicorn app.main:app --reload --port 8000
 ```
 
-El script descarga:
-
-- `yolox_nano.onnx`
-- `face_detection_yunet_2023mar.onnx`
-- `face_recognition_sface_2021dec.onnx`
-
 Comprobar:
 
 ```text
@@ -108,60 +107,32 @@ npm run dev
 Vistas:
 
 ```text
-http://localhost:5173/               cámara
-http://localhost:5173/summary.html   resumen operativo
-http://localhost:5173/history.html   historial
+http://localhost:5173/               cámara/configuración
+http://localhost:5173/summary.html   resumen operativo en tiempo real
+http://localhost:5173/history.html   historial y línea temporal
 ```
 
-## Registro facial
+## Persistencia
 
-1. Enciende la cámara.
-2. Escribe el nombre de la persona.
-3. Asegúrate de que solo haya un rostro visible.
-4. Pulsa `Registrar rostro`.
-5. Registra idealmente 3 a 5 muestras con pequeñas variaciones.
+No se guardan frames ni fotografías de seguimiento.
 
-No se guardan fotografías. Los embeddings se almacenan en:
+Embeddings faciales:
 
 ```text
 backend/data/face_registry.json
 ```
 
-## Historial de presencia
-
-Cuando una identidad queda confirmada, se abre una sesión vinculada a su `identity_id`, no al `tracker_id`.
-
-```text
-Mauricio
-  identity_id = identidad estable
-  tracker_id  = trayectoria temporal de ByteTrack
-```
-
-SQLite se crea automáticamente en:
+Datos temporales/persistentes:
 
 ```text
 backend/data/presence.db
 ```
 
-No se registra un row por frame. Solo se persisten la sesión y cambios relevantes:
+SQLite contiene presencia, zonas, interacciones, incidencias operativas y señales de comportamiento confirmadas.
 
-```text
-ENTER
-IDENTIFIED
-LOST
-RETURNED
-EXIT
-```
+## Zonas y perspectiva
 
-Historial API:
-
-```text
-GET /api/presence/history?session_limit=30&event_limit=80
-```
-
-## Zonas
-
-Las zonas se dibujan desde la interfaz y se almacenan como coordenadas normalizadas. La posición de una persona usa el punto inferior-central del bounding box:
+La posición usa el punto inferior-central del bounding box:
 
 ```text
 ┌────────────┐
@@ -171,27 +142,17 @@ Las zonas se dibujan desde la interfaz y se almacenan como coordenadas normaliza
       posición
 ```
 
-Cuando una identidad con sesión de presencia entra en una zona, se abre una `zone_session`. Al cambiar de zona o salir, se cierra y se registra:
+Además se calcula:
 
 ```text
-ENTER_ZONE
-EXIT_ZONE
+person_height_ratio = altura_bbox / altura_frame
 ```
 
-Las zonas desactivadas dejan de participar en detección, pero sus sesiones históricas se conservan.
+Una persona con un `person_height_ratio` inferior a `ZONE_MIN_PERSON_HEIGHT_RATIO` no puede activar una zona. El valor inicial es `0.08`.
 
-API:
-
-```text
-GET  /api/zones
-POST /api/zones
-POST /api/zones/{zone_id}/delete
-GET  /api/zones/history?session_limit=50&event_limit=120
-```
+Esto es un filtro práctico para reducir falsas asignaciones de personas lejanas del pasillo/fondo. No sustituye una calibración geométrica del piso. Si se necesita precisión espacial robusta, el siguiente nivel es una homografía usando puntos de referencia del piso.
 
 ## Interacciones
-
-El módulo de interacción trabaja después de reconocimiento, presencia y zonas.
 
 La primera versión registra únicamente:
 
@@ -199,34 +160,12 @@ La primera versión registra únicamente:
 empleado reconocido <-> persona desconocida
 ```
 
-No cuenta todavía interacciones entre dos empleados reconocidos. Un track con identidad facial todavía en estado `candidate` tampoco se trata como cliente potencial.
-
-La distancia se calcula entre los puntos inferiores de ambos bounding boxes y se expresa como fracción del ancho del frame. Configuración inicial:
+Reglas iniciales:
 
 ```text
-distancia máxima       0.18 del ancho del frame
-confirmación           3.0 segundos cerca
-tolerancia de salida   2.0 segundos
-```
-
-Por tanto, cruzarse frente a otro track durante un instante no crea una interacción. Solo al mantener proximidad durante el tiempo de confirmación se crea una sesión persistente.
-
-La sesión guarda:
-
-```text
-presence_session_id
-identity_id del empleado
-employee_tracker_id
-other_tracker_id
-zona
-inicio de proximidad
-momento de confirmación
-última proximidad
-fin
-duración
-distancia mínima
-distancia promedio
-cantidad de muestras
+INTERACTION_DISTANCE_THRESHOLD=0.18
+INTERACTION_CONFIRM_SECONDS=3.0
+INTERACTION_EXIT_GRACE_SECONDS=2.0
 ```
 
 Eventos:
@@ -240,17 +179,103 @@ API:
 
 ```text
 GET /api/interactions/active
-GET /api/interactions/history?session_limit=80&event_limit=160
+GET /api/interactions/history
 ```
 
-Los tracks reconocidos devueltos por `/api/vision/detect` incluyen además:
+## Supervisión operativa
+
+### Módulo vacío / abandono
+
+La regla no usa `personas_en_frame == 0`. Solo evalúa empleados reconocidos dentro de zonas operativas y que superan el filtro de perspectiva.
+
+El monitor de abandono se arma después de observar por primera vez un empleado reconocido dentro del módulo. Así el sistema no registra un falso abandono simplemente porque la cámara se inició antes de la llegada del personal.
+
+Después de quedar vacío durante:
 
 ```text
-interaction_candidate_count
-active_interactions[]
+MODULE_EMPTY_CONFIRM_SECONDS=30.0
 ```
 
-Limitación actual: una persona desconocida sigue vinculada a su `tracker_id`. Si ByteTrack pierde definitivamente ese ID y crea otro, todavía no existe ReID para unir ambas apariciones como la misma persona.
+se crea:
+
+```text
+MODULE_ABANDONED
+MODULE_ABANDONED_START
+MODULE_ABANDONED_END
+```
+
+Si `OPERATIONAL_MODULE_ZONE_NAMES` queda vacío, todas las zonas activas forman el módulo. Si se especifican nombres, solo se usan los que realmente existen entre las zonas activas.
+
+API:
+
+```text
+GET /api/operations/status
+GET /api/operations/history
+```
+
+### Counter / mostrador
+
+El counter no se infiere por la imagen ni por el nombre `zona 1/2/3`. Debe configurarse explícitamente por nombre:
+
+```dotenv
+OPERATIONAL_COUNTER_ZONE_NAMES=nombre_real_de_la_zona
+```
+
+Si ninguno de los nombres configurados coincide con una zona activa, el resumen muestra el counter como no configurado.
+
+## Señal de celular
+
+YOLOX COCO ya incluye la clase `cell phone`, por lo que la misma inferencia detecta personas y teléfonos sin añadir otro framework.
+
+La señal solo se procesa cuando:
+
+- el teléfono puede asociarse espacialmente a un bounding box de persona;
+- esa persona está reconocida como empleado;
+- el empleado está dentro del módulo operativo;
+- la señal se mantiene temporalmente.
+
+Configuración inicial:
+
+```dotenv
+PHONE_DETECTION_THRESHOLD=0.20
+PHONE_ASSOCIATION_MARGIN_RATIO=0.08
+PHONE_USE_CONFIRM_SECONDS=600.0
+PHONE_USE_GAP_GRACE_SECONDS=5.0
+```
+
+Después de 600 segundos se crea una incidencia:
+
+```text
+PHONE_USE_LONG
+PHONE_USE_LONG_START
+PHONE_USE_LONG_END
+```
+
+Importante: esta señal significa `cell phone visible asociado al empleado durante el umbral`. No demuestra qué estaba haciendo el empleado ni debe interpretarse automáticamente como incumplimiento. Los teléfonos pequeños u ocultos también pueden generar falsos negativos con YOLOX Nano a 416 px.
+
+API:
+
+```text
+GET /api/behaviors/status
+GET /api/behaviors/history
+```
+
+## Resumen e historial
+
+`summary.html` se actualiza periódicamente y consolida por empleado:
+
+- presencia;
+- zona actual;
+- tiempo por zona;
+- tiempo en counter;
+- interacciones;
+- tiempo en interacción;
+- celular visible actualmente;
+- incidencias de celular por encima del umbral;
+- estado global del módulo;
+- abandonos registrados.
+
+`history.html` contiene tablas y línea de tiempo para presencia, zonas, interacciones, comportamientos e incidencias operativas.
 
 ## Modelos y licencias
 
@@ -261,6 +286,11 @@ Limitación actual: una persona desconocida sigue vinculada a su `tracker_id`. S
 
 Los pesos ONNX y los datos biométricos/runtime no se versionan en Git.
 
-## Siguiente módulo
+## Próximos módulos
 
-Después de calibrar interacciones, el siguiente backend será métricas operativas agregadas y posteriormente clasificación de actividad/postura.
+1. Calibrar perspectiva y, si hace falta, introducir homografía del plano del piso.
+2. Añadir pose/keypoints para postura con un modelo ONNX local.
+3. Definir reglas de postura concretas antes de calificarlas como incorrectas.
+4. Añadir un detector específico de audífonos; la clase no existe en COCO YOLOX.
+5. Motor de reglas/alertas que combine identidad, zona, duración, interacción y comportamiento.
+6. Multi-cámara con estado aislado por `camera_id`.
