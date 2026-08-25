@@ -11,8 +11,8 @@
         <aside class="control-panel">
           <div class="control-panel__header">
             <div>
-              <p class="eyebrow">Módulo 2</p>
-              <h1>Detección y tracking</h1>
+              <p class="eyebrow">Módulo 3</p>
+              <h1>Tracking temporal</h1>
             </div>
             <span id="status" class="status">Cámara apagada</span>
           </div>
@@ -29,7 +29,7 @@
             <p class="section-label">Datos en tiempo real</p>
             <div class="metrics">
               <div class="metric-card">
-                <span>Personas</span>
+                <span>Detectadas ahora</span>
                 <strong id="peopleCount">0</strong>
               </div>
               <div class="metric-card">
@@ -41,18 +41,18 @@
 
           <div class="control-section active-tracks-section">
             <div class="section-heading-row">
-              <p class="section-label">Personas activas</p>
+              <p class="section-label">Personas rastreadas</p>
               <span id="activeTrackCount" class="track-count">0</span>
             </div>
             <div id="activeTracks" class="active-tracks">
-              <p class="tracks-empty">Sin personas visibles.</p>
+              <p class="tracks-empty">Sin personas rastreadas.</p>
             </div>
           </div>
 
           <div class="control-section control-section--info">
             <p class="section-label">Estado del módulo</p>
             <p class="helper-text">
-              YOLOX detecta personas y ByteTrack mantiene un ID temporal mientras continúan visibles.
+              Hasta 2 s sin detección mantiene presencia estable; de 2 a 5 s marca perdido y después pasa a fuera de escena.
             </p>
           </div>
         </aside>
@@ -61,7 +61,7 @@
           <div class="camera-panel__header">
             <div>
               <p class="section-label">Vista en vivo</p>
-              <p class="camera-description">Cámara + bounding boxes + tracker ID</p>
+              <p class="camera-description">Cámara + bounding boxes + tracker ID + estado temporal</p>
             </div>
           </div>
 
