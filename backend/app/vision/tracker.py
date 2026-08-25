@@ -3,16 +3,23 @@ from __future__ import annotations
 import numpy as np
 import supervision as sv
 
+from app.core.config import settings
+
 
 class PersonTracker:
     """Stateful ByteTrack wrapper for a single active camera stream."""
 
-    def __init__(self, frame_rate: int = 4) -> None:
-        self.frame_rate = frame_rate
+    def __init__(self) -> None:
         self._tracker = self._build_tracker()
 
     def _build_tracker(self) -> sv.ByteTrack:
-        return sv.ByteTrack(frame_rate=self.frame_rate)
+        return sv.ByteTrack(
+            track_activation_threshold=settings.tracker_activation_threshold,
+            lost_track_buffer=settings.tracker_lost_buffer,
+            minimum_matching_threshold=settings.tracker_matching_threshold,
+            frame_rate=settings.tracker_frame_rate,
+            minimum_consecutive_frames=settings.tracker_min_consecutive_frames,
+        )
 
     def reset(self) -> None:
         self._tracker = self._build_tracker()
