@@ -5,7 +5,9 @@ const DETECTION_URL = `${API_BASE_URL}/api/vision/detect`;
 const TRACKING_RESET_URL = `${API_BASE_URL}/api/vision/tracking/reset`;
 const FACE_LIST_URL = `${API_BASE_URL}/api/vision/faces`;
 const FACE_REGISTER_URL = `${API_BASE_URL}/api/vision/faces/register`;
+const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const DETECTION_INTERVAL_MS = 250;
+const HISTORY_REFRESH_MS = 3000;
 
 const video = document.querySelector("#camera");
 const overlay = document.querySelector("#overlay");
@@ -21,6 +23,8 @@ const identityName = document.querySelector("#identityName");
 const registerFaceButton = document.querySelector("#registerFaceButton");
 const registrationStatus = document.querySelector("#registrationStatus");
 const registeredIdentities = document.querySelector("#registeredIdentities");
+const presenceHistory = document.querySelector("#presenceHistory");
+const historyCount = document.querySelector("#historyCount");
 
 let stream = null;
 let loopId = null;
@@ -44,6 +48,7 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     await resetTracking();
+    await refreshPresenceHistory();
 
     resizeCanvases();
     renderTrackedPeople([]);
@@ -75,7 +80,10 @@ function stopCamera() {
   video.srcObject = null;
   requestInFlight = false;
 
-  void resetTracking();
+  void resetTracking()
+    .then(refreshPresenceHistory)
+    .catch((error) => console.error(error));
+
   clearOverlay();
   renderTrackedPeople([]);
   peopleCount.textContent = "0";
@@ -227,6 +235,69 @@ async function runDetection() {
   }
 }
 
+async function refreshPresenceHistory() {
+  try {
+    const response = await fetch(`${PRESENCE_HISTORY_URL}?session_limit=20&event_limit=40`);
+    if (!response.ok) throw new Error(`API error ${response.status}`);
+
+    const result = await response.json();
+    renderPresenceHistory(result.sessions ?? []);
+  } catch (error) {
+    console.error(error);
+    historyCount.textContent = "-";
+    presenceHistory.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "tracks-empty";
+    empty.textContent = "No se pudo cargar el historial.";
+    presenceHistory.appendChild(empty);
+  }
+}
+
+function renderPresenceHistory(sessions) {
+  historyCount.textContent = String(sessions.length);
+  presenceHistory.replaceChildren();
+
+  if (sessions.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "tracks-empty";
+    empty.textContent = "Sin sesiones registradas.";
+    presenceHistory.appendChild(empty);
+    return;
+  }
+
+  for (const session of sessions) {
+    const card = document.createElement("article");
+    card.className = `history-card history-card--${session.status}`;
+
+    const heading = document.createElement("div");
+    heading.className = "history-heading";
+
+    const name = document.createElement("strong");
+    name.textContent = session.identity_name;
+
+    const state = document.createElement("span");
+    state.className = `history-status history-status--${session.status}`;
+    state.textContent = session.status === "active" ? "Activa" : "Cerrada";
+
+    heading.append(name, state);
+
+    const details = document.createElement("div");
+    details.className = "history-details";
+    details.append(
+      createTrackDetail("Entrada", formatClock(session.started_at)),
+      createTrackDetail(
+        "Salida",
+        session.status === "active" ? "Ahora" : formatClock(session.ended_at)
+      ),
+      createTrackDetail("Duración", formatDuration(session.duration_seconds)),
+      createTrackDetail("Track", session.tracker_id == null ? "-" : `ID ${session.tracker_id}`)
+    );
+
+    card.append(heading, details);
+    presenceHistory.appendChild(card);
+  }
+}
+
 function renderTrackedPeople(trackStates) {
   const statusOrder = { visible: 0, lost: 1, out: 2 };
   const tracks = [...trackStates].sort((a, b) => {
@@ -280,10 +351,13 @@ function renderTrackedPeople(trackStates) {
     details.className = "track-details";
 
     details.append(
-      createTrackDetail("Sesión", formatDuration(track.session_seconds)),
+      createTrackDetail("Track", formatDuration(track.session_seconds)),
       createTrackDetail("Detección", `${(track.confidence * 100).toFixed(0)}%`),
-      createTrackDetail("Primera vez", formatClock(track.first_seen_at)),
-      createTrackDetail("Última vez", formatLastSeen(track))
+      createTrackDetail(
+        "Presencia",
+        track.presence_session_id ? `Sesión #${track.presence_session_id}` : "-"
+      ),
+      createTrackDetail("Entrada", formatClock(track.presence_started_at ?? track.first_seen_at))
     );
 
     content.append(heading, identityLine, details);
@@ -341,6 +415,7 @@ function formatDuration(value) {
 }
 
 function formatClock(value) {
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
@@ -442,4 +517,6 @@ identityName.addEventListener("keydown", (event) => {
 window.addEventListener("resize", resizeCanvases);
 window.addEventListener("beforeunload", stopCamera);
 
+window.setInterval(refreshPresenceHistory, HISTORY_REFRESH_MS);
 void refreshFaceRegistry();
+void refreshPresenceHistory();
