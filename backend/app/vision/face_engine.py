@@ -14,10 +14,10 @@ class FaceEngine:
     def __init__(self) -> None:
         self.detector = None
         self.recognizer = None
+        self.load_error: str | None = None
         self._lock = Lock()
 
-        if self.models_available:
-            self._load_models()
+        self.ensure_ready()
 
     @property
     def models_available(self) -> bool:
@@ -28,7 +28,48 @@ class FaceEngine:
 
     @property
     def ready(self) -> bool:
-        return self.detector is not None and self.recognizer is not None
+        return self.ensure_ready()
+
+    def ensure_ready(self) -> bool:
+        if self.detector is not None and self.recognizer is not None:
+            return True
+
+        if not self.models_available:
+            self.load_error = "Faltan uno o ambos modelos faciales en backend/models."
+            return False
+
+        with self._lock:
+            if self.detector is not None and self.recognizer is not None:
+                return True
+
+            try:
+                self._load_models()
+                self.load_error = None
+                return True
+            except Exception as error:
+                self.detector = None
+                self.recognizer = None
+                self.load_error = f"{type(error).__name__}: {error}"
+                return False
+
+    def diagnostics(self) -> dict:
+        detector_path = settings.resolved_face_detector_model_path
+        recognizer_path = settings.resolved_face_recognizer_model_path
+
+        return {
+            "ready": self.ready,
+            "load_error": self.load_error,
+            "detector": {
+                "path": str(detector_path),
+                "exists": detector_path.exists(),
+                "size_bytes": detector_path.stat().st_size if detector_path.exists() else 0,
+            },
+            "recognizer": {
+                "path": str(recognizer_path),
+                "exists": recognizer_path.exists(),
+                "size_bytes": recognizer_path.stat().st_size if recognizer_path.exists() else 0,
+            },
+        }
 
     def _load_models(self) -> None:
         self.detector = cv2.FaceDetectorYN.create(
@@ -45,7 +86,7 @@ class FaceEngine:
         )
 
     def detect(self, image: np.ndarray) -> list[dict]:
-        if not self.ready:
+        if not self.ensure_ready():
             return []
 
         with self._lock:
