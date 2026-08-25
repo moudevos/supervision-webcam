@@ -9,10 +9,10 @@
     <main class="dashboard-shell">
       <header class="dashboard-header">
         <div>
-          <p class="eyebrow">Módulo 7B</p>
+          <p class="eyebrow">Módulo 8</p>
           <h1>Historial</h1>
           <p class="dashboard-subtitle">
-            Presencia, permanencia por zona, interacciones confirmadas y eventos registrados.
+            Presencia, zonas, interacciones e incidencias operativas.
           </p>
           <nav class="app-nav" aria-label="Navegación principal">
             <a href="/">Cámara</a>
@@ -104,6 +104,30 @@
                 </tr>
               </thead>
               <tbody id="interactionTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Incidencias operativas</h2>
+          <span id="operationalIncidentCount" class="section-count">0</span>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Condición desde</th>
+                  <th>Confirmada</th>
+                  <th>Fin</th>
+                  <th>Duración</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="operationalTableBody"></tbody>
             </table>
           </div>
         </div>
