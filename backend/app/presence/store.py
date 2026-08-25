@@ -183,7 +183,7 @@ class PresenceStore:
         *,
         session_id: int,
         identity_id: str,
-        tracker_id: int,
+        tracker_id: int | None,
         event_type: str,
         occurred_at: datetime,
         details: dict | None = None,
@@ -204,7 +204,7 @@ class PresenceStore:
         *,
         session_id: int,
         identity_id: str,
-        tracker_id: int,
+        tracker_id: int | None,
         ended_at: datetime,
         close_reason: str,
     ) -> None:
@@ -273,11 +273,12 @@ class PresenceStore:
                         row["id"],
                     ),
                 )
+                tracker_id = int(row["tracker_id"]) if row["tracker_id"] is not None else None
                 self._insert_event(
                     connection,
                     session_id=int(row["id"]),
                     identity_id=row["identity_id"],
-                    tracker_id=int(row["tracker_id"] or 0),
+                    tracker_id=tracker_id,
                     event_type="EXIT",
                     occurred_at=last_seen_at,
                     details={"reason": "backend_restart"},
@@ -329,7 +330,7 @@ class PresenceStore:
         *,
         session_id: int,
         identity_id: str,
-        tracker_id: int,
+        tracker_id: int | None,
         event_type: str,
         occurred_at: datetime,
         details: dict | None,
