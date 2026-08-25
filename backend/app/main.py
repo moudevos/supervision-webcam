@@ -4,15 +4,18 @@ import cv2
 import numpy as np
 
 from app.core.config import settings
+from app.interactions.service import interaction_manager
 from app.presence.service import presence_manager
 from app.vision.detector import detector
 from app.vision.face_engine import face_engine
 from app.vision.face_registry import face_registry
 from app.vision.identity import identity_manager
 from app.vision.schemas import (
+    ActiveInteractionResponse,
     DetectionResponse,
     FaceRegistrationResponse,
     FaceRegistryResponse,
+    InteractionHistoryResponse,
     PresenceHistoryResponse,
     ZoneCreateRequest,
     ZoneHistoryResponse,
@@ -24,7 +27,7 @@ from app.vision.tracker import tracker
 from app.zones.service import zone_manager
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.6.0")
+app = FastAPI(title="Supervision Webcam API", version="0.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,6 +58,13 @@ def health() -> dict:
         "zones": {
             "enabled": True,
             "active_count": len(zone_manager.list_zones()),
+        },
+        "interactions": {
+            "enabled": True,
+            "active_count": len(interaction_manager.active()),
+            "distance_threshold": settings.interaction_distance_threshold,
+            "confirm_seconds": settings.interaction_confirm_seconds,
+            "exit_grace_seconds": settings.interaction_exit_grace_seconds,
         },
         "calibration": {
             "detection_floor": settings.confidence_threshold,
@@ -142,8 +152,23 @@ def zone_history(
     return ZoneHistoryResponse(**history)
 
 
+@app.get("/api/interactions/active", response_model=ActiveInteractionResponse)
+def active_interactions() -> ActiveInteractionResponse:
+    return ActiveInteractionResponse(interactions=interaction_manager.active())
+
+
+@app.get("/api/interactions/history", response_model=InteractionHistoryResponse)
+def interaction_history(
+    session_limit: int = Query(default=80, ge=1, le=300),
+    event_limit: int = Query(default=160, ge=1, le=500),
+) -> InteractionHistoryResponse:
+    history = interaction_manager.history(session_limit, event_limit)
+    return InteractionHistoryResponse(**history)
+
+
 @app.post("/api/vision/tracking/reset")
 def reset_tracking() -> dict:
+    interaction_manager.reset(reason="camera_reset")
     zone_manager.reset(reason="camera_reset")
     presence_manager.reset(close_reason="camera_reset")
     tracker.reset()
@@ -169,6 +194,12 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
     track_states = identity_manager.update(image, tracked_detections, track_states)
     track_states = presence_manager.update(track_states)
     track_states = zone_manager.update(tracked_detections, track_states, width, height)
+    track_states = interaction_manager.update(
+        tracked_detections,
+        track_states,
+        width,
+        height,
+    )
 
     return DetectionResponse(
         ready=True,
