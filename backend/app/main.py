@@ -1,9 +1,10 @@
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 
 from app.core.config import settings
+from app.presence.service import presence_manager
 from app.vision.detector import detector
 from app.vision.face_engine import face_engine
 from app.vision.face_registry import face_registry
@@ -12,12 +13,13 @@ from app.vision.schemas import (
     DetectionResponse,
     FaceRegistrationResponse,
     FaceRegistryResponse,
+    PresenceHistoryResponse,
 )
 from app.vision.track_state import track_state_manager
 from app.vision.tracker import tracker
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.4.1")
+app = FastAPI(title="Supervision Webcam API", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +43,10 @@ def health() -> dict:
         "face_recognition_ready": face_diagnostics["ready"],
         "face_registry_size": len(face_registry.list_people()),
         "face_models": face_diagnostics,
+        "presence_history": {
+            "enabled": True,
+            "database_path": str(settings.resolved_presence_db_path),
+        },
         "calibration": {
             "detection_floor": settings.confidence_threshold,
             "track_activation": settings.tracker_activation_threshold,
@@ -84,8 +90,18 @@ async def register_face(
     return FaceRegistrationResponse(**registration)
 
 
+@app.get("/api/presence/history", response_model=PresenceHistoryResponse)
+def presence_history(
+    session_limit: int = Query(default=30, ge=1, le=200),
+    event_limit: int = Query(default=80, ge=1, le=500),
+) -> PresenceHistoryResponse:
+    history = presence_manager.history(session_limit, event_limit)
+    return PresenceHistoryResponse(**history)
+
+
 @app.post("/api/vision/tracking/reset")
 def reset_tracking() -> dict:
+    presence_manager.reset(close_reason="camera_reset")
     tracker.reset()
     track_state_manager.reset()
     identity_manager.reset()
@@ -106,6 +122,7 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
     tracked_detections = tracker.update(detections)
     track_states = track_state_manager.update(tracked_detections)
     track_states = identity_manager.update(image, tracked_detections, track_states)
+    track_states = presence_manager.update(track_states)
     height, width = image.shape[:2]
 
     return DetectionResponse(
