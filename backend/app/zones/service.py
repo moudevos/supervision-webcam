@@ -22,6 +22,13 @@ class ActiveZone:
     last_persisted_monotonic: float
 
 
+@dataclass(frozen=True)
+class TrackPosition:
+    x: float
+    y: float
+    person_height_ratio: float
+
+
 class ZoneManager:
     """Assigns tracked people to normalized polygons and persists dwell sessions."""
 
@@ -96,14 +103,17 @@ class ZoneManager:
                         self._close(active, active.last_seen_at, "out_of_scene")
                     continue
 
-                point = positions.get(tracker_id)
-                if not track.get("detected_now") or point is None:
+                position = positions.get(tracker_id)
+                if not track.get("detected_now") or position is None:
                     continue
 
-                zone = self._zone_for_point(point)
+                zone = self._zone_for_position(position)
 
                 if active is not None and (zone is None or zone["id"] != active.zone_id):
-                    self._close(active, now, "zone_change" if zone else "left_zone")
+                    reason = "perspective_filtered" if not self._position_is_eligible(position) else (
+                        "zone_change" if zone else "left_zone"
+                    )
+                    self._close(active, now, reason)
                     active = None
 
                 if zone is not None and active is None and track.get("identity_id"):
@@ -181,7 +191,7 @@ class ZoneManager:
     def _decorate(
         self,
         track: dict,
-        positions: dict[int, tuple[float, float]],
+        positions: dict[int, TrackPosition],
         now: datetime,
     ) -> dict:
         enriched = dict(track)
@@ -192,8 +202,16 @@ class ZoneManager:
                 "zone_session_id": None,
                 "zone_entered_at": None,
                 "zone_seconds": None,
+                "zone_position_eligible": None,
+                "person_height_ratio": None,
             }
         )
+
+        tracker_id = enriched.get("tracker_id")
+        position = positions.get(int(tracker_id)) if tracker_id is not None else None
+        if position is not None:
+            enriched["person_height_ratio"] = round(position.person_height_ratio, 4)
+            enriched["zone_position_eligible"] = self._position_is_eligible(position)
 
         presence_session_id = enriched.get("presence_session_id")
         if presence_session_id is not None:
@@ -210,18 +228,18 @@ class ZoneManager:
                 )
                 return enriched
 
-        tracker_id = enriched.get("tracker_id")
-        if tracker_id is not None and enriched.get("detected_now"):
-            point = positions.get(int(tracker_id))
-            if point is not None:
-                zone = self._zone_for_point(point)
-                if zone is not None:
-                    enriched["current_zone_id"] = str(zone["id"])
-                    enriched["current_zone_name"] = str(zone["name"])
+        if tracker_id is not None and enriched.get("detected_now") and position is not None:
+            zone = self._zone_for_position(position)
+            if zone is not None:
+                enriched["current_zone_id"] = str(zone["id"])
+                enriched["current_zone_name"] = str(zone["name"])
 
         return enriched
 
-    def _zone_for_point(self, point: tuple[float, float]) -> dict | None:
+    def _zone_for_position(self, position: TrackPosition) -> dict | None:
+        if not self._position_is_eligible(position):
+            return None
+        point = (position.x, position.y)
         candidates = [
             zone for zone in self._zones if _point_in_polygon(point, zone["polygon"])
         ]
@@ -229,6 +247,10 @@ class ZoneManager:
             return None
         candidates.sort(key=lambda zone: _polygon_area(zone["polygon"]))
         return candidates[0]
+
+    @staticmethod
+    def _position_is_eligible(position: TrackPosition) -> bool:
+        return position.person_height_ratio >= settings.zone_min_person_height_ratio
 
     def _reload_zones(self) -> None:
         self._zones = self.store.list_zones(enabled_only=True)
@@ -238,19 +260,24 @@ def _positions_by_tracker(
     detections: list[dict],
     image_width: int,
     image_height: int,
-) -> dict[int, tuple[float, float]]:
+) -> dict[int, TrackPosition]:
     if image_width <= 0 or image_height <= 0:
         return {}
 
-    positions: dict[int, tuple[float, float]] = {}
+    positions: dict[int, TrackPosition] = {}
     for detection in detections:
         tracker_id = detection.get("tracker_id")
         if tracker_id is None:
             continue
-        x1, _, x2, y2 = detection["box"]
+        x1, y1, x2, y2 = detection["box"]
         x = ((float(x1) + float(x2)) / 2.0) / image_width
         y = float(y2) / image_height
-        positions[int(tracker_id)] = (_clamp01(x), _clamp01(y))
+        height_ratio = max(0.0, float(y2) - float(y1)) / image_height
+        positions[int(tracker_id)] = TrackPosition(
+            x=_clamp01(x),
+            y=_clamp01(y),
+            person_height_ratio=max(0.0, min(1.0, height_ratio)),
+        )
     return positions
 
 
