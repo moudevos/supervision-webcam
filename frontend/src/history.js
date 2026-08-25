@@ -5,6 +5,7 @@ const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
 const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
 const OPERATIONAL_HISTORY_URL = `${API_BASE_URL}/api/operations/history`;
+const BEHAVIOR_HISTORY_URL = `${API_BASE_URL}/api/behaviors/history`;
 const REFRESH_MS = 3000;
 
 const historyDate = document.querySelector("#historyDate");
@@ -13,11 +14,13 @@ const historyRefreshStatus = document.querySelector("#historyRefreshStatus");
 const presenceSessionCount = document.querySelector("#presenceSessionCount");
 const zoneSessionCount = document.querySelector("#zoneSessionCount");
 const interactionSessionCount = document.querySelector("#interactionSessionCount");
+const behaviorIncidentCount = document.querySelector("#behaviorIncidentCount");
 const operationalIncidentCount = document.querySelector("#operationalIncidentCount");
 const eventCount = document.querySelector("#eventCount");
 const presenceTableBody = document.querySelector("#presenceTableBody");
 const zoneTableBody = document.querySelector("#zoneTableBody");
 const interactionTableBody = document.querySelector("#interactionTableBody");
+const behaviorTableBody = document.querySelector("#behaviorTableBody");
 const operationalTableBody = document.querySelector("#operationalTableBody");
 const timelineList = document.querySelector("#timelineList");
 const historyError = document.querySelector("#historyError");
@@ -25,6 +28,7 @@ const historyError = document.querySelector("#historyError");
 let presenceData = { sessions: [], events: [] };
 let zoneData = { sessions: [], events: [] };
 let interactionData = { sessions: [], events: [] };
+let behaviorData = { incidents: [], events: [] };
 let operationalData = { incidents: [], events: [] };
 let refreshInFlight = false;
 
@@ -37,10 +41,17 @@ async function refreshHistory() {
   refreshInFlight = true;
 
   try {
-    const [presenceResponse, zoneResponse, interactionResponse, operationalResponse] = await Promise.all([
+    const [
+      presenceResponse,
+      zoneResponse,
+      interactionResponse,
+      behaviorResponse,
+      operationalResponse
+    ] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=500`),
       fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=500`),
       fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=500`),
+      fetch(`${BEHAVIOR_HISTORY_URL}?incident_limit=500&event_limit=500`),
       fetch(`${OPERATIONAL_HISTORY_URL}?incident_limit=500&event_limit=500`)
     ]);
 
@@ -48,16 +59,25 @@ async function refreshHistory() {
       [presenceResponse, "Historial de presencia"],
       [zoneResponse, "Historial de zonas"],
       [interactionResponse, "Historial de interacciones"],
+      [behaviorResponse, "Historial de comportamientos"],
       [operationalResponse, "Historial operativo"]
     ];
+
     for (const [response, label] of responses) {
       if (!response.ok) throw new Error(`${label}: API ${response.status}`);
     }
 
-    [presenceData, zoneData, interactionData, operationalData] = await Promise.all([
+    [
+      presenceData,
+      zoneData,
+      interactionData,
+      behaviorData,
+      operationalData
+    ] = await Promise.all([
       presenceResponse.json(),
       zoneResponse.json(),
       interactionResponse.json(),
+      behaviorResponse.json(),
       operationalResponse.json()
     ]);
 
@@ -87,6 +107,9 @@ function refreshEmployeeFilter() {
   }
   for (const session of interactionData.sessions ?? []) {
     identities.set(String(session.identity_id), session.identity_name);
+  }
+  for (const incident of behaviorData.incidents ?? []) {
+    identities.set(String(incident.identity_id), incident.identity_name);
   }
 
   const sorted = [...identities.entries()].sort((a, b) =>
@@ -125,6 +148,9 @@ function renderHistory() {
   const interactionSessions = (interactionData.sessions ?? []).filter((session) =>
     matchesSession(session, identityId, bounds, "started_at", "ended_at", "last_seen_at")
   );
+  const behaviorIncidents = (behaviorData.incidents ?? []).filter((incident) =>
+    matchesBehaviorIncident(incident, identityId, bounds)
+  );
   const operationalIncidents = (operationalData.incidents ?? []).filter((incident) =>
     matchesOperationalIncident(incident, bounds)
   );
@@ -138,6 +164,9 @@ function renderHistory() {
   const interactionEvents = (interactionData.events ?? [])
     .filter((event) => matchesEvent(event, identityId, bounds))
     .map((event) => ({ ...event, source: "interaction" }));
+  const behaviorEvents = (behaviorData.events ?? [])
+    .filter((event) => matchesEvent(event, identityId, bounds))
+    .map((event) => ({ ...event, source: "behavior" }));
   const operationalEvents = identityId
     ? []
     : (operationalData.events ?? [])
@@ -148,18 +177,21 @@ function renderHistory() {
     ...presenceEvents,
     ...zoneEvents,
     ...interactionEvents,
+    ...behaviorEvents,
     ...operationalEvents
   ].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
 
   renderPresenceTable(presenceSessions);
   renderZoneTable(zoneSessions);
   renderInteractionTable(interactionSessions);
+  renderBehaviorTable(behaviorIncidents);
   renderOperationalTable(operationalIncidents, Boolean(identityId));
   renderTimeline(events);
 
   presenceSessionCount.textContent = String(presenceSessions.length);
   zoneSessionCount.textContent = String(zoneSessions.length);
   interactionSessionCount.textContent = String(interactionSessions.length);
+  behaviorIncidentCount.textContent = String(behaviorIncidents.length);
   operationalIncidentCount.textContent = identityId ? "-" : String(operationalIncidents.length);
   eventCount.textContent = String(events.length);
 }
@@ -220,6 +252,7 @@ function renderInteractionTable(sessions) {
     const row = document.createElement("tr");
     const other = session.other_identity_name
       ?? (session.other_tracker_id == null ? "Persona" : `Persona ID ${session.other_tracker_id}`);
+
     row.append(
       createCell(session.identity_name),
       createCell(other),
@@ -230,6 +263,29 @@ function renderInteractionTable(sessions) {
       createStatusCell(session.status)
     );
     interactionTableBody.appendChild(row);
+  }
+}
+
+function renderBehaviorTable(incidents) {
+  behaviorTableBody.replaceChildren();
+
+  if (incidents.length === 0) {
+    appendEmptyRow(behaviorTableBody, 7, "Sin señales de comportamiento confirmadas para estos filtros.");
+    return;
+  }
+
+  for (const incident of incidents) {
+    const row = document.createElement("tr");
+    row.append(
+      createCell(incident.identity_name),
+      createCell(behaviorLabel(incident.behavior_type)),
+      createCell(formatDateTime(incident.started_at)),
+      createCell(formatDateTime(incident.confirmed_at)),
+      createCell(incident.status === "active" ? "Ahora" : formatDateTime(incident.ended_at)),
+      createCell(formatDuration(effectiveBehaviorDuration(incident))),
+      createStatusCell(incident.status)
+    );
+    behaviorTableBody.appendChild(row);
   }
 }
 
@@ -289,6 +345,7 @@ function renderTimeline(events) {
 
     const description = document.createElement("span");
     description.className = "timeline-description";
+
     if (event.source === "zone") {
       description.textContent = `${event.identity_name} · ${event.zone_name}`;
     } else if (event.source === "interaction") {
@@ -296,6 +353,8 @@ function renderTimeline(events) {
         ?? (event.other_tracker_id == null ? "persona" : `Persona ID ${event.other_tracker_id}`);
       const zone = event.zone_name ? ` · ${event.zone_name}` : "";
       description.textContent = `${event.identity_name} ↔ ${other}${zone}`;
+    } else if (event.source === "behavior") {
+      description.textContent = `${event.identity_name} · ${behaviorLabel(event.behavior_type)}`;
     } else if (event.source === "operation") {
       description.textContent = incidentLabel(event.incident_type);
     } else {
@@ -324,6 +383,17 @@ function matchesEvent(event, identityId, bounds) {
   return occurred >= bounds.start && occurred < bounds.end;
 }
 
+function matchesBehaviorIncident(incident, identityId, bounds) {
+  if (identityId && String(incident.identity_id) !== identityId) return false;
+
+  const start = new Date(incident.started_at);
+  const end = incident.status === "active"
+    ? new Date()
+    : new Date(incident.ended_at ?? incident.last_seen_at ?? incident.confirmed_at);
+
+  return start < bounds.end && end >= bounds.start;
+}
+
 function matchesOperationalIncident(incident, bounds) {
   const start = new Date(incident.started_at);
   const end = incident.status === "active"
@@ -342,6 +412,14 @@ function effectiveDuration(session, startKey, endKey, fallbackEndKey) {
   const end = session.status === "active"
     ? new Date()
     : new Date(session[endKey] ?? session[fallbackEndKey]);
+  return Math.max(0, (end - start) / 1000);
+}
+
+function effectiveBehaviorDuration(incident) {
+  const start = new Date(incident.started_at);
+  const end = incident.status === "active"
+    ? new Date()
+    : new Date(incident.ended_at ?? incident.last_seen_at ?? incident.confirmed_at);
   return Math.max(0, (end - start) / 1000);
 }
 
@@ -390,10 +468,17 @@ function eventLabel(type) {
     EXIT_ZONE: "Salida zona",
     INTERACTION_START: "Interacción inicia",
     INTERACTION_END: "Interacción termina",
+    PHONE_USE_LONG_START: "Celular >10 min inicia",
+    PHONE_USE_LONG_END: "Celular >10 min termina",
     MODULE_ABANDONED_START: "Abandono inicia",
     MODULE_ABANDONED_END: "Abandono termina"
   };
   return labels[type] ?? type;
+}
+
+function behaviorLabel(type) {
+  if (type === "PHONE_USE_LONG") return "Celular visible >10 min";
+  return type;
 }
 
 function incidentLabel(type) {
@@ -420,6 +505,7 @@ function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+
   return date.toLocaleString([], {
     day: "2-digit",
     month: "2-digit",
@@ -432,6 +518,7 @@ function formatDateTime(value) {
 function formatClock(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+
   return date.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
