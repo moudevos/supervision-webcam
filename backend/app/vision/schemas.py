@@ -12,6 +12,19 @@ class DetectionItem(BaseModel):
     tracker_id: int | None = None
 
 
+class InteractionLiveItem(BaseModel):
+    interaction_session_id: int
+    other_tracker_id: int
+    other_identity_id: str | None = None
+    other_identity_name: str | None = None
+    zone_id: str | None = None
+    zone_name: str | None = None
+    started_at: datetime
+    confirmed_at: datetime
+    duration_seconds: float = Field(ge=0.0)
+    distance_ratio: float = Field(ge=0.0)
+
+
 class TrackStateItem(BaseModel):
     tracker_id: int
     status: Literal["visible", "lost", "out"]
@@ -32,6 +45,8 @@ class TrackStateItem(BaseModel):
     zone_session_id: int | None = None
     zone_entered_at: datetime | None = None
     zone_seconds: float | None = Field(default=None, ge=0.0)
+    interaction_candidate_count: int = Field(default=0, ge=0)
+    active_interactions: list[InteractionLiveItem] = Field(default_factory=list)
 
 
 class DetectionResponse(BaseModel):
@@ -141,3 +156,52 @@ class ZoneEventItem(BaseModel):
 class ZoneHistoryResponse(BaseModel):
     sessions: list[ZoneSessionItem]
     events: list[ZoneEventItem]
+
+
+class InteractionSessionItem(BaseModel):
+    id: int
+    presence_session_id: int
+    identity_id: str
+    identity_name: str
+    employee_tracker_id: int | None = None
+    other_tracker_id: int
+    other_identity_id: str | None = None
+    other_identity_name: str | None = None
+    zone_id: str | None = None
+    zone_name: str | None = None
+    started_at: datetime
+    confirmed_at: datetime
+    last_seen_at: datetime
+    ended_at: datetime | None = None
+    duration_seconds: float = Field(ge=0.0)
+    status: Literal["active", "closed"]
+    min_distance_ratio: float = Field(ge=0.0)
+    avg_distance_ratio: float = Field(ge=0.0)
+    sample_count: int = Field(ge=1)
+    close_reason: str | None = None
+
+
+class InteractionEventItem(BaseModel):
+    id: int
+    interaction_session_id: int
+    presence_session_id: int
+    identity_id: str
+    identity_name: str
+    employee_tracker_id: int | None = None
+    other_tracker_id: int
+    other_identity_id: str | None = None
+    other_identity_name: str | None = None
+    zone_id: str | None = None
+    zone_name: str | None = None
+    event_type: Literal["INTERACTION_START", "INTERACTION_END"]
+    occurred_at: datetime
+    details: dict[str, Any] | None = None
+
+
+class InteractionHistoryResponse(BaseModel):
+    sessions: list[InteractionSessionItem]
+    events: list[InteractionEventItem]
+
+
+class ActiveInteractionResponse(BaseModel):
+    interactions: list[InteractionLiveItem]
