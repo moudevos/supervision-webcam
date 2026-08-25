@@ -4,10 +4,15 @@ const API_BASE_URL = "http://localhost:8000";
 const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
 const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
+const OPERATIONAL_STATUS_URL = `${API_BASE_URL}/api/operations/status`;
+const OPERATIONAL_HISTORY_URL = `${API_BASE_URL}/api/operations/history`;
 const REFRESH_MS = 2000;
 
 const summaryDate = document.querySelector("#summaryDate");
 const refreshStatus = document.querySelector("#refreshStatus");
+const moduleStatus = document.querySelector("#moduleStatus");
+const counterStatus = document.querySelector("#counterStatus");
+const moduleIncidentCount = document.querySelector("#moduleIncidentCount");
 const activeEmployees = document.querySelector("#activeEmployees");
 const detectedEmployees = document.querySelector("#detectedEmployees");
 const totalPresence = document.querySelector("#totalPresence");
@@ -28,35 +33,53 @@ async function refreshSummary() {
   refreshInFlight = true;
 
   try {
-    const [presenceResponse, zoneResponse, interactionResponse] = await Promise.all([
+    const [
+      presenceResponse,
+      zoneResponse,
+      interactionResponse,
+      operationalStatusResponse,
+      operationalHistoryResponse
+    ] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=1`),
       fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=1`),
-      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=1`)
+      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=1`),
+      fetch(OPERATIONAL_STATUS_URL),
+      fetch(`${OPERATIONAL_HISTORY_URL}?incident_limit=500&event_limit=1`)
     ]);
 
-    if (!presenceResponse.ok) {
-      throw new Error(`Historial de presencia: API ${presenceResponse.status}`);
-    }
-    if (!zoneResponse.ok) {
-      throw new Error(`Historial de zonas: API ${zoneResponse.status}`);
-    }
-    if (!interactionResponse.ok) {
-      throw new Error(`Historial de interacciones: API ${interactionResponse.status}`);
+    const responses = [
+      [presenceResponse, "Historial de presencia"],
+      [zoneResponse, "Historial de zonas"],
+      [interactionResponse, "Historial de interacciones"],
+      [operationalStatusResponse, "Estado operativo"],
+      [operationalHistoryResponse, "Historial operativo"]
+    ];
+    for (const [response, label] of responses) {
+      if (!response.ok) throw new Error(`${label}: API ${response.status}`);
     }
 
-    const [presence, zones, interactions] = await Promise.all([
+    const [presence, zones, interactions, operationalStatusData, operationalHistory] = await Promise.all([
       presenceResponse.json(),
       zoneResponse.json(),
-      interactionResponse.json()
+      interactionResponse.json(),
+      operationalStatusResponse.json(),
+      operationalHistoryResponse.json()
     ]);
 
     const employees = aggregateEmployees(
       presence.sessions ?? [],
       zones.sessions ?? [],
       interactions.sessions ?? [],
+      operationalStatusData.counter_zone_names ?? [],
       summaryDate.value
     );
 
+    const incidents = filterIncidentsForDate(
+      operationalHistory.incidents ?? [],
+      summaryDate.value
+    );
+
+    renderOperationalStatus(operationalStatusData, incidents.length);
     renderSummary(employees);
     summaryError.hidden = true;
     refreshStatus.textContent = `Actualizado ${formatClock(new Date())}`;
@@ -70,10 +93,17 @@ async function refreshSummary() {
   }
 }
 
-function aggregateEmployees(presenceSessions, zoneSessions, interactionSessions, dateValue) {
+function aggregateEmployees(
+  presenceSessions,
+  zoneSessions,
+  interactionSessions,
+  counterZoneNames,
+  dateValue
+) {
   const bounds = getDayBounds(dateValue);
   const now = new Date();
   const employees = new Map();
+  const counterKeys = new Set(counterZoneNames.map((name) => String(name).trim().toLocaleLowerCase("es")));
 
   for (const session of presenceSessions) {
     const start = new Date(session.started_at);
@@ -128,6 +158,12 @@ function aggregateEmployees(presenceSessions, zoneSessions, interactionSessions,
     current.seconds += seconds;
     item.zones.set(key, current);
     item.totalZoneSeconds += seconds;
+
+    const zoneNameKey = String(session.zone_name ?? "").trim().toLocaleLowerCase("es");
+    if (counterKeys.has(zoneNameKey)) {
+      item.counterSeconds += seconds;
+      if (session.status === "active") item.atCounter = true;
+    }
 
     if (session.status === "active") {
       item.currentZoneId = key;
@@ -190,6 +226,8 @@ function getEmployee(map, identityId, identityName) {
       interactionCount: 0,
       activeInteractionCount: 0,
       totalInteractionSeconds: 0,
+      counterSeconds: 0,
+      atCounter: false,
       currentZoneId: null,
       currentZoneName: null,
       currentZoneEnteredAt: null,
@@ -198,6 +236,29 @@ function getEmployee(map, identityId, identityName) {
     map.set(key, item);
   }
   return item;
+}
+
+function renderOperationalStatus(statusData, incidentCount) {
+  moduleIncidentCount.textContent = String(incidentCount);
+
+  if (!statusData.monitored) {
+    moduleStatus.textContent = "Sin zonas";
+  } else if (statusData.module_abandoned) {
+    moduleStatus.textContent = `ABANDONO ${formatDuration(statusData.module_empty_seconds)}`;
+  } else if (statusData.module_empty) {
+    moduleStatus.textContent = `Vacío ${formatDuration(statusData.module_empty_seconds)}`;
+  } else {
+    moduleStatus.textContent = "Operativo";
+  }
+
+  if ((statusData.counter_zone_names ?? []).length === 0) {
+    counterStatus.textContent = "Sin configurar";
+  } else if (statusData.counter_occupied) {
+    const count = (statusData.employees_at_counter ?? []).length;
+    counterStatus.textContent = `${count} presente${count === 1 ? "" : "s"}`;
+  } else {
+    counterStatus.textContent = "Sin presencia";
+  }
 }
 
 function renderSummary(employees) {
@@ -250,7 +311,8 @@ function createEmployeeCard(employee) {
     const interactionText = employee.activeInteractionCount > 0
       ? ` · ${employee.activeInteractionCount} interacción${employee.activeInteractionCount === 1 ? "" : "es"} activa${employee.activeInteractionCount === 1 ? "" : "s"}`
       : "";
-    currentZone.textContent = `Zona actual: ${employee.currentZoneName ?? "Sin zona"}${interactionText}`;
+    const counterText = employee.atCounter ? " · EN COUNTER" : "";
+    currentZone.textContent = `Zona actual: ${employee.currentZoneName ?? "Sin zona"}${counterText}${interactionText}`;
   } else {
     currentZone.textContent = "Sin presencia activa";
   }
@@ -260,6 +322,7 @@ function createEmployeeCard(employee) {
   details.append(
     createDetail("Presencia", formatDuration(employee.totalPresenceSeconds)),
     createDetail("Tiempo en zonas", formatDuration(employee.totalZoneSeconds)),
+    createDetail("Tiempo counter", formatDuration(employee.counterSeconds)),
     createDetail("Interacciones", String(employee.interactionCount)),
     createDetail("Tiempo interacción", formatDuration(employee.totalInteractionSeconds)),
     createDetail("Primera detección", formatClock(employee.firstSeen)),
@@ -293,6 +356,18 @@ function createEmployeeCard(employee) {
 
   card.append(heading, currentZone, details, breakdown);
   return card;
+}
+
+function filterIncidentsForDate(incidents, dateValue) {
+  const bounds = getDayBounds(dateValue);
+  const now = new Date();
+  return incidents.filter((incident) => {
+    const start = new Date(incident.started_at);
+    const end = incident.status === "active"
+      ? now
+      : new Date(incident.ended_at ?? incident.confirmed_at);
+    return datesOverlap(start, end, bounds.start, bounds.end);
+  });
 }
 
 function createDetail(label, value) {
