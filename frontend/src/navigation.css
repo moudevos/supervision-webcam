@@ -1,0 +1,27 @@
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.app-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #2a323e;
+  border-radius: 9px;
+  color: #aeb7c5;
+  background: #0c1118;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-nav a:hover,
+.app-nav a[aria-current="page"] {
+  border-color: #486052;
+  color: #91f29d;
+  background: #142819;
+}
