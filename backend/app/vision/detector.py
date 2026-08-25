@@ -11,11 +11,12 @@ from app.core.config import settings
 
 
 class PersonDetector:
-    """YOLOX Nano detector focused only on the COCO `person` class."""
+    """YOLOX Nano scene detector with person tracking input and selected objects."""
 
     input_size = (416, 416)
     strides = (8, 16, 32)
     person_class_id = 0
+    cell_phone_class_id = 67
 
     def __init__(self) -> None:
         self.model_path = settings.resolved_model_path
@@ -37,6 +38,10 @@ class PersonDetector:
         self.input_name = self.session.get_inputs()[0].name
 
     def detect(self, image: np.ndarray) -> tuple[list[dict], float]:
+        people, _, elapsed_ms = self.detect_scene(image)
+        return people, elapsed_ms
+
+    def detect_scene(self, image: np.ndarray) -> tuple[list[dict], list[dict], float]:
         if not self.ready:
             raise RuntimeError(
                 "Detection model is not available. Run: python scripts/download_model.py"
@@ -44,22 +49,57 @@ class PersonDetector:
 
         started_at = perf_counter()
         tensor, ratio = self._preprocess(image)
-
         outputs = self.session.run(None, {self.input_name: tensor})
         predictions = self._decode_yolox(outputs[0])[0]
+        image_height, image_width = image.shape[:2]
 
-        boxes = predictions[:, :4]
+        people = self._extract_class(
+            predictions=predictions,
+            class_id=self.person_class_id,
+            class_name="person",
+            threshold=settings.confidence_threshold,
+            ratio=ratio,
+            image_width=image_width,
+            image_height=image_height,
+            min_area_ratio=settings.min_box_area_ratio,
+        )
+        phones = self._extract_class(
+            predictions=predictions,
+            class_id=self.cell_phone_class_id,
+            class_name="cell_phone",
+            threshold=settings.phone_detection_threshold,
+            ratio=ratio,
+            image_width=image_width,
+            image_height=image_height,
+            min_area_ratio=0.0,
+        )
+
+        elapsed_ms = (perf_counter() - started_at) * 1000
+        return people, phones, elapsed_ms
+
+    def _extract_class(
+        self,
+        *,
+        predictions: np.ndarray,
+        class_id: int,
+        class_name: str,
+        threshold: float,
+        ratio: float,
+        image_width: int,
+        image_height: int,
+        min_area_ratio: float,
+    ) -> list[dict]:
+        if predictions.size == 0 or predictions.shape[1] <= 5 + class_id:
+            return []
+
         class_scores = predictions[:, 4:5] * predictions[:, 5:]
-
-        scores = class_scores[:, self.person_class_id]
-        keep = scores >= settings.confidence_threshold
-
-        boxes = boxes[keep]
+        scores = class_scores[:, class_id]
+        keep = scores >= threshold
+        boxes = predictions[keep, :4]
         scores = scores[keep]
 
         if boxes.size == 0:
-            elapsed_ms = (perf_counter() - started_at) * 1000
-            return [], elapsed_ms
+            return []
 
         boxes_xyxy = np.empty_like(boxes)
         boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2
@@ -68,44 +108,39 @@ class PersonDetector:
         boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2
         boxes_xyxy /= ratio
 
-        image_height, image_width = image.shape[:2]
         boxes_xyxy[:, [0, 2]] = np.clip(boxes_xyxy[:, [0, 2]], 0, image_width - 1)
         boxes_xyxy[:, [1, 3]] = np.clip(boxes_xyxy[:, [1, 3]], 0, image_height - 1)
 
-        widths = np.maximum(0.0, boxes_xyxy[:, 2] - boxes_xyxy[:, 0])
-        heights = np.maximum(0.0, boxes_xyxy[:, 3] - boxes_xyxy[:, 1])
-        areas = widths * heights
-        min_area = image_width * image_height * settings.min_box_area_ratio
-        area_keep = areas >= min_area
-
-        boxes_xyxy = boxes_xyxy[area_keep]
-        scores = scores[area_keep]
+        if min_area_ratio > 0:
+            widths = np.maximum(0.0, boxes_xyxy[:, 2] - boxes_xyxy[:, 0])
+            heights = np.maximum(0.0, boxes_xyxy[:, 3] - boxes_xyxy[:, 1])
+            areas = widths * heights
+            min_area = image_width * image_height * min_area_ratio
+            area_keep = areas >= min_area
+            boxes_xyxy = boxes_xyxy[area_keep]
+            scores = scores[area_keep]
 
         if boxes_xyxy.size == 0:
-            elapsed_ms = (perf_counter() - started_at) * 1000
-            return [], elapsed_ms
+            return []
 
         detections = sv.Detections(
             xyxy=boxes_xyxy,
             confidence=scores.astype(np.float32),
-            class_id=np.full(len(scores), self.person_class_id, dtype=int),
+            class_id=np.full(len(scores), class_id, dtype=int),
         ).with_nms(
             threshold=settings.nms_threshold,
             class_agnostic=True,
         )
 
-        result = [
+        return [
             {
-                "class_name": "person",
-                "class_id": self.person_class_id,
+                "class_name": class_name,
+                "class_id": class_id,
                 "confidence": float(confidence),
                 "box": tuple(float(value) for value in box),
             }
             for box, confidence in zip(detections.xyxy, detections.confidence)
         ]
-
-        elapsed_ms = (perf_counter() - started_at) * 1000
-        return result, elapsed_ms
 
     def _preprocess(self, image: np.ndarray) -> tuple[np.ndarray, float]:
         target_height, target_width = self.input_size
