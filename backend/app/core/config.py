@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     face_confirm_hits: int = 3
     face_max_samples_per_identity: int = 5
 
+    # Presence persistence. SQLite is intentionally local for this MVP.
+    presence_db_path: str = "data/presence.db"
+    presence_persist_interval_seconds: float = 1.0
+    presence_history_limit: int = 30
+    presence_event_limit: int = 80
+
     cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
@@ -63,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def resolved_face_registry_path(self) -> Path:
         return (self.backend_dir / self.face_registry_path).resolve()
+
+    @property
+    def resolved_presence_db_path(self) -> Path:
+        return (self.backend_dir / self.presence_db_path).resolve()
 
     @property
     def allowed_origins(self) -> list[str]:
