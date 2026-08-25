@@ -1,6 +1,8 @@
 import "./styles.css";
 
-const API_URL = "http://localhost:8000/api/vision/detect";
+const API_BASE_URL = "http://localhost:8000";
+const DETECTION_URL = `${API_BASE_URL}/api/vision/detect`;
+const TRACKING_RESET_URL = `${API_BASE_URL}/api/vision/tracking/reset`;
 const DETECTION_INTERVAL_MS = 250;
 
 const video = document.querySelector("#camera");
@@ -32,6 +34,7 @@ async function startCamera() {
 
     video.srcObject = stream;
     await video.play();
+    await resetTracking();
 
     resizeCanvases();
     status.textContent = "Detectando";
@@ -42,7 +45,7 @@ async function startCamera() {
     loopId = window.setInterval(runDetection, DETECTION_INTERVAL_MS);
   } catch (error) {
     console.error(error);
-    status.textContent = "No se pudo abrir la cámara";
+    status.textContent = error.message || "No se pudo abrir la cámara";
   }
 }
 
@@ -57,6 +60,7 @@ function stopCamera() {
   video.srcObject = null;
   requestInFlight = false;
 
+  void resetTracking();
   clearOverlay();
   peopleCount.textContent = "0";
   inferenceMs.textContent = "-";
@@ -64,6 +68,13 @@ function stopCamera() {
   status.classList.remove("status--active");
   startButton.disabled = false;
   stopButton.disabled = true;
+}
+
+async function resetTracking() {
+  const response = await fetch(TRACKING_RESET_URL, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`No se pudo reiniciar tracking (${response.status})`);
+  }
 }
 
 async function runDetection() {
@@ -80,7 +91,7 @@ async function runDetection() {
     const formData = new FormData();
     formData.append("file", blob, "frame.jpg");
 
-    const response = await fetch(API_URL, {
+    const response = await fetch(DETECTION_URL, {
       method: "POST",
       body: formData
     });
@@ -124,7 +135,8 @@ function drawDetections(result) {
 
     ctx.strokeRect(x, y, width, height);
 
-    const label = `Persona ${(detection.confidence * 100).toFixed(0)}%`;
+    const idLabel = detection.tracker_id ?? "?";
+    const label = `ID ${idLabel} · ${(detection.confidence * 100).toFixed(0)}%`;
     const textWidth = ctx.measureText(label).width;
     const labelY = Math.max(24, y);
 
