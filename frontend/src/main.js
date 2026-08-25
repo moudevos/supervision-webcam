@@ -13,6 +13,8 @@ const stopButton = document.querySelector("#stopButton");
 const status = document.querySelector("#status");
 const peopleCount = document.querySelector("#peopleCount");
 const inferenceMs = document.querySelector("#inferenceMs");
+const activeTracks = document.querySelector("#activeTracks");
+const activeTrackCount = document.querySelector("#activeTrackCount");
 
 let stream = null;
 let loopId = null;
@@ -37,6 +39,7 @@ async function startCamera() {
     await resetTracking();
 
     resizeCanvases();
+    renderActiveTracks([]);
     status.textContent = "Detectando";
     status.classList.add("status--active");
     startButton.disabled = true;
@@ -62,6 +65,7 @@ function stopCamera() {
 
   void resetTracking();
   clearOverlay();
+  renderActiveTracks([]);
   peopleCount.textContent = "0";
   inferenceMs.textContent = "-";
   status.textContent = "Cámara apagada";
@@ -103,6 +107,7 @@ async function runDetection() {
 
     const result = await response.json();
     drawDetections(result);
+    renderActiveTracks(result.detections);
     peopleCount.textContent = String(result.detections.length);
     inferenceMs.textContent = String(result.inference_ms);
     status.textContent = "Detectando";
@@ -112,6 +117,54 @@ async function runDetection() {
     clearOverlay();
   } finally {
     requestInFlight = false;
+  }
+}
+
+function renderActiveTracks(detections) {
+  const tracks = [...detections].sort((a, b) => {
+    const aId = a.tracker_id ?? Number.MAX_SAFE_INTEGER;
+    const bId = b.tracker_id ?? Number.MAX_SAFE_INTEGER;
+    return aId - bId;
+  });
+
+  activeTrackCount.textContent = String(tracks.length);
+  activeTracks.replaceChildren();
+
+  if (tracks.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "tracks-empty";
+    empty.textContent = "Sin personas visibles.";
+    activeTracks.appendChild(empty);
+    return;
+  }
+
+  for (const detection of tracks) {
+    const trackerId = detection.tracker_id ?? "?";
+    const confidence = `${(detection.confidence * 100).toFixed(0)}%`;
+
+    const card = document.createElement("article");
+    card.className = "track-card";
+
+    const id = document.createElement("span");
+    id.className = "track-id";
+    id.textContent = String(trackerId);
+
+    const info = document.createElement("div");
+    info.className = "track-info";
+
+    const name = document.createElement("strong");
+    name.textContent = `Persona ${trackerId}`;
+
+    const detail = document.createElement("span");
+    detail.textContent = `Confianza ${confidence}`;
+
+    const visible = document.createElement("span");
+    visible.className = "track-status";
+    visible.textContent = "Visible";
+
+    info.append(name, detail);
+    card.append(id, info, visible);
+    activeTracks.appendChild(card);
   }
 }
 
