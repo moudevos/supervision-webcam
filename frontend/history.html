@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Historial · Supervision Webcam</title>
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="dashboard-header">
+        <div>
+          <p class="eyebrow">Módulo 7B</p>
+          <h1>Historial</h1>
+          <p class="dashboard-subtitle">
+            Sesiones de presencia, permanencia por zona y eventos registrados.
+          </p>
+          <nav class="app-nav" aria-label="Navegación principal">
+            <a href="/">Cámara</a>
+            <a href="/summary.html">Resumen</a>
+            <a href="/history.html" aria-current="page">Historial</a>
+          </nav>
+        </div>
+
+        <div class="dashboard-toolbar">
+          <div class="toolbar-field">
+            <label for="historyDate">Fecha</label>
+            <input id="historyDate" type="date" />
+          </div>
+          <div class="toolbar-field">
+            <label for="employeeFilter">Empleado</label>
+            <select id="employeeFilter">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <span id="historyRefreshStatus" class="live-indicator">Actualizando</span>
+        </div>
+      </header>
+
+      <section>
+        <div class="section-header">
+          <h2>Sesiones de presencia</h2>
+          <span id="presenceSessionCount" class="section-count">0</span>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Empleado</th>
+                  <th>Entrada</th>
+                  <th>Salida</th>
+                  <th>Duración</th>
+                  <th>Estado</th>
+                  <th>Track</th>
+                </tr>
+              </thead>
+              <tbody id="presenceTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Permanencia por zona</h2>
+          <span id="zoneSessionCount" class="section-count">0</span>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Empleado</th>
+                  <th>Zona</th>
+                  <th>Entrada</th>
+                  <th>Salida</th>
+                  <th>Duración</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="zoneTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Línea de tiempo</h2>
+          <span id="eventCount" class="section-count">0</span>
+        </div>
+        <div class="timeline-card">
+          <div id="timelineList" class="timeline-list">
+            <div class="empty-state">Sin eventos para los filtros seleccionados.</div>
+          </div>
+        </div>
+      </section>
+
+      <div id="historyError" class="error-state" hidden></div>
+    </main>
+
+    <script type="module" src="/src/history.js"></script>
+  </body>
+</html>
