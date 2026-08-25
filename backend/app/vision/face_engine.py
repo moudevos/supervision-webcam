@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from threading import Lock
+
 import cv2
 import numpy as np
 
@@ -12,6 +14,7 @@ class FaceEngine:
     def __init__(self) -> None:
         self.detector = None
         self.recognizer = None
+        self._lock = Lock()
 
         if self.models_available:
             self._load_models()
@@ -45,26 +48,31 @@ class FaceEngine:
         if not self.ready:
             return []
 
-        height, width = image.shape[:2]
-        self.detector.setInputSize((width, height))
-        _, faces = self.detector.detect(image)
+        with self._lock:
+            height, width = image.shape[:2]
+            self.detector.setInputSize((width, height))
+            _, faces = self.detector.detect(image)
 
-        if faces is None or len(faces) == 0:
-            return []
+            if faces is None or len(faces) == 0:
+                return []
 
-        observations: list[dict] = []
-        for face in faces:
-            embedding = self._embedding(image, face)
-            x, y, w, h = (float(value) for value in face[:4])
-            observations.append(
-                {
-                    "box": (x, y, x + w, y + h),
-                    "confidence": float(face[-1]),
-                    "embedding": embedding,
-                }
-            )
+            observations: list[dict] = []
+            for face in faces:
+                try:
+                    embedding = self._embedding(image, face)
+                except (cv2.error, ValueError):
+                    continue
 
-        return observations
+                x, y, w, h = (float(value) for value in face[:4])
+                observations.append(
+                    {
+                        "box": (x, y, x + w, y + h),
+                        "confidence": float(face[-1]),
+                        "embedding": embedding,
+                    }
+                )
+
+            return observations
 
     def extract_single_embedding(self, image: np.ndarray) -> np.ndarray:
         observations = self.detect(image)
