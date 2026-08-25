@@ -14,12 +14,17 @@ from app.vision.schemas import (
     FaceRegistrationResponse,
     FaceRegistryResponse,
     PresenceHistoryResponse,
+    ZoneCreateRequest,
+    ZoneHistoryResponse,
+    ZoneItem,
+    ZoneListResponse,
 )
 from app.vision.track_state import track_state_manager
 from app.vision.tracker import tracker
+from app.zones.service import zone_manager
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.5.0")
+app = FastAPI(title="Supervision Webcam API", version="0.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,6 +51,10 @@ def health() -> dict:
         "presence_history": {
             "enabled": True,
             "database_path": str(settings.resolved_presence_db_path),
+        },
+        "zones": {
+            "enabled": True,
+            "active_count": len(zone_manager.list_zones()),
         },
         "calibration": {
             "detection_floor": settings.confidence_threshold,
@@ -99,8 +108,43 @@ def presence_history(
     return PresenceHistoryResponse(**history)
 
 
+@app.get("/api/zones", response_model=ZoneListResponse)
+def list_zones() -> ZoneListResponse:
+    return ZoneListResponse(zones=zone_manager.list_zones())
+
+
+@app.post("/api/zones", response_model=ZoneItem)
+def create_zone(payload: ZoneCreateRequest) -> ZoneItem:
+    try:
+        zone = zone_manager.create_zone(
+            payload.name,
+            [[float(x), float(y)] for x, y in payload.polygon],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return ZoneItem(**zone)
+
+
+@app.post("/api/zones/{zone_id}/delete")
+def disable_zone(zone_id: str) -> dict:
+    changed = zone_manager.disable_zone(zone_id)
+    if not changed:
+        raise HTTPException(status_code=404, detail="Zona no encontrada o ya desactivada.")
+    return {"status": "ok"}
+
+
+@app.get("/api/zones/history", response_model=ZoneHistoryResponse)
+def zone_history(
+    session_limit: int = Query(default=50, ge=1, le=300),
+    event_limit: int = Query(default=120, ge=1, le=500),
+) -> ZoneHistoryResponse:
+    history = zone_manager.history(session_limit, event_limit)
+    return ZoneHistoryResponse(**history)
+
+
 @app.post("/api/vision/tracking/reset")
 def reset_tracking() -> dict:
+    zone_manager.reset(reason="camera_reset")
     presence_manager.reset(close_reason="camera_reset")
     tracker.reset()
     track_state_manager.reset()
@@ -117,13 +161,14 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
         )
 
     image = await decode_upload(file)
+    height, width = image.shape[:2]
 
     detections, inference_ms = detector.detect(image)
     tracked_detections = tracker.update(detections)
     track_states = track_state_manager.update(tracked_detections)
     track_states = identity_manager.update(image, tracked_detections, track_states)
     track_states = presence_manager.update(track_states)
-    height, width = image.shape[:2]
+    track_states = zone_manager.update(tracked_detections, track_states, width, height)
 
     return DetectionResponse(
         ready=True,
