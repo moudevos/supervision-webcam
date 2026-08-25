@@ -72,6 +72,19 @@ class PersonDetector:
         boxes_xyxy[:, [0, 2]] = np.clip(boxes_xyxy[:, [0, 2]], 0, image_width - 1)
         boxes_xyxy[:, [1, 3]] = np.clip(boxes_xyxy[:, [1, 3]], 0, image_height - 1)
 
+        widths = np.maximum(0.0, boxes_xyxy[:, 2] - boxes_xyxy[:, 0])
+        heights = np.maximum(0.0, boxes_xyxy[:, 3] - boxes_xyxy[:, 1])
+        areas = widths * heights
+        min_area = image_width * image_height * settings.min_box_area_ratio
+        area_keep = areas >= min_area
+
+        boxes_xyxy = boxes_xyxy[area_keep]
+        scores = scores[area_keep]
+
+        if boxes_xyxy.size == 0:
+            elapsed_ms = (perf_counter() - started_at) * 1000
+            return [], elapsed_ms
+
         detections = sv.Detections(
             xyxy=boxes_xyxy,
             confidence=scores.astype(np.float32),
