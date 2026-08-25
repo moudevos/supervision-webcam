@@ -41,11 +41,32 @@ class OperationalManager:
             now = datetime.now(timezone.utc)
             now_monotonic = monotonic()
 
+            active_zone_names = [str(zone["name"]) for zone in zones]
+            active_zone_by_key = {
+                _zone_key(name): name
+                for name in active_zone_names
+                if _zone_key(name)
+            }
+
             configured_module_names = settings.module_zone_names
-            module_names = configured_module_names or [str(zone["name"]) for zone in zones]
-            module_keys = {name.casefold() for name in module_names}
-            counter_names = settings.counter_zone_names
-            counter_keys = {name.casefold() for name in counter_names}
+            if configured_module_names:
+                module_names = [
+                    active_zone_by_key[key]
+                    for key in (_zone_key(name) for name in configured_module_names)
+                    if key in active_zone_by_key
+                ]
+            else:
+                module_names = active_zone_names
+
+            configured_counter_names = settings.counter_zone_names
+            counter_names = [
+                active_zone_by_key[key]
+                for key in (_zone_key(name) for name in configured_counter_names)
+                if key in active_zone_by_key
+            ]
+
+            module_keys = {_zone_key(name) for name in module_names}
+            counter_keys = {_zone_key(name) for name in counter_names}
             monitored = bool(module_keys)
 
             employees = [
@@ -103,7 +124,7 @@ class OperationalManager:
                         incident_id=self._active_incident_id,
                         incident_type=self.incident_type,
                         ended_at=now,
-                        close_reason="employee_returned",
+                        close_reason="employee_returned" if monitored else "module_unconfigured",
                         details={
                             "employees_in_module": [
                                 str(track.get("identity_name") or track.get("identity_id"))
@@ -164,7 +185,7 @@ class OperationalManager:
         return {
             "monitored": False,
             "module_zone_names": [],
-            "counter_zone_names": settings.counter_zone_names,
+            "counter_zone_names": [],
             "module_empty": False,
             "module_empty_seconds": 0.0,
             "module_abandoned": False,
