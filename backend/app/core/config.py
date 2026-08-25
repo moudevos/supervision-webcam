@@ -25,6 +25,17 @@ class Settings(BaseSettings):
     track_lost_threshold_seconds: float = 5.0
     track_retention_seconds: float = 5.0
 
+    # Local face recognition.
+    face_detector_model_path: str = "models/face_detection_yunet_2023mar.onnx"
+    face_recognizer_model_path: str = "models/face_recognition_sface_2021dec.onnx"
+    face_registry_path: str = "data/face_registry.json"
+    face_detection_threshold: float = 0.85
+    face_nms_threshold: float = 0.30
+    face_match_threshold: float = 0.45
+    face_scan_interval_frames: int = 4
+    face_confirm_hits: int = 3
+    face_max_samples_per_identity: int = 5
+
     cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(
@@ -34,9 +45,24 @@ class Settings(BaseSettings):
     )
 
     @property
+    def backend_dir(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @property
     def resolved_model_path(self) -> Path:
-        backend_dir = Path(__file__).resolve().parents[2]
-        return (backend_dir / self.model_path).resolve()
+        return (self.backend_dir / self.model_path).resolve()
+
+    @property
+    def resolved_face_detector_model_path(self) -> Path:
+        return (self.backend_dir / self.face_detector_model_path).resolve()
+
+    @property
+    def resolved_face_recognizer_model_path(self) -> Path:
+        return (self.backend_dir / self.face_recognizer_model_path).resolve()
+
+    @property
+    def resolved_face_registry_path(self) -> Path:
+        return (self.backend_dir / self.face_registry_path).resolve()
 
     @property
     def allowed_origins(self) -> list[str]:
