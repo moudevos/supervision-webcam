@@ -7,29 +7,59 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="panel">
-        <header class="panel__header">
-          <div>
-            <p class="eyebrow">Módulo 1</p>
-            <h1>Detección de personas</h1>
+      <section class="workspace">
+        <aside class="control-panel">
+          <div class="control-panel__header">
+            <div>
+              <p class="eyebrow">Módulo 2</p>
+              <h1>Detección y tracking</h1>
+            </div>
+            <span id="status" class="status">Cámara apagada</span>
           </div>
-          <span id="status" class="status">Cámara apagada</span>
-        </header>
 
-        <div class="camera-stage">
-          <video id="camera" autoplay playsinline muted></video>
-          <canvas id="overlay"></canvas>
-        </div>
-
-        <div class="toolbar">
-          <button id="startButton" type="button">Encender cámara</button>
-          <button id="stopButton" type="button" disabled>Detener</button>
-
-          <div class="metrics">
-            <span>Personas: <strong id="peopleCount">0</strong></span>
-            <span>Inferencia: <strong id="inferenceMs">-</strong> ms</span>
+          <div class="control-section">
+            <p class="section-label">Control</p>
+            <div class="actions">
+              <button id="startButton" type="button">Encender cámara</button>
+              <button id="stopButton" type="button" disabled>Detener</button>
+            </div>
           </div>
-        </div>
+
+          <div class="control-section">
+            <p class="section-label">Datos en tiempo real</p>
+            <div class="metrics">
+              <div class="metric-card">
+                <span>Personas</span>
+                <strong id="peopleCount">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>Inferencia</span>
+                <strong><span id="inferenceMs">-</span> ms</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-section control-section--info">
+            <p class="section-label">Estado del módulo</p>
+            <p class="helper-text">
+              YOLOX detecta personas y ByteTrack mantiene un ID temporal mientras continúan visibles.
+            </p>
+          </div>
+        </aside>
+
+        <section class="camera-panel">
+          <div class="camera-panel__header">
+            <div>
+              <p class="section-label">Vista en vivo</p>
+              <p class="camera-description">Cámara + bounding boxes + tracker ID</p>
+            </div>
+          </div>
+
+          <div class="camera-stage">
+            <video id="camera" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+          </div>
+        </section>
       </section>
     </main>
 
