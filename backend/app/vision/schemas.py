@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,8 @@ class TrackStateItem(BaseModel):
     identity_id: str | None = None
     identity_name: str | None = None
     identity_score: float | None = None
+    presence_session_id: int | None = None
+    presence_started_at: datetime | None = None
 
 
 class DetectionResponse(BaseModel):
@@ -51,3 +53,33 @@ class FaceIdentityItem(BaseModel):
 class FaceRegistryResponse(BaseModel):
     ready: bool
     identities: list[FaceIdentityItem]
+
+
+class PresenceSessionItem(BaseModel):
+    id: int
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    started_at: datetime
+    last_seen_at: datetime
+    ended_at: datetime | None = None
+    duration_seconds: float = Field(ge=0.0)
+    status: Literal["active", "closed"]
+    identity_score: float | None = None
+    close_reason: str | None = None
+
+
+class PresenceEventItem(BaseModel):
+    id: int
+    session_id: int
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    event_type: Literal["ENTER", "IDENTIFIED", "LOST", "RETURNED", "EXIT"]
+    occurred_at: datetime
+    details: dict[str, Any] | None = None
+
+
+class PresenceHistoryResponse(BaseModel):
+    sessions: list[PresenceSessionItem]
+    events: list[PresenceEventItem]
