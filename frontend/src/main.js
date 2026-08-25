@@ -128,10 +128,10 @@ function drawDetections(result) {
 
   for (const detection of result.detections) {
     const [x1, y1, x2, y2] = detection.box;
-    const x = x1 * scaleX;
-    const y = y1 * scaleY;
     const width = (x2 - x1) * scaleX;
     const height = (y2 - y1) * scaleY;
+    const x = overlay.width - x2 * scaleX;
+    const y = y1 * scaleY;
 
     ctx.strokeRect(x, y, width, height);
 
