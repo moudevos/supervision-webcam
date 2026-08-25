@@ -27,6 +27,11 @@ class TrackStateItem(BaseModel):
     identity_score: float | None = None
     presence_session_id: int | None = None
     presence_started_at: datetime | None = None
+    current_zone_id: str | None = None
+    current_zone_name: str | None = None
+    zone_session_id: int | None = None
+    zone_entered_at: datetime | None = None
+    zone_seconds: float | None = Field(default=None, ge=0.0)
 
 
 class DetectionResponse(BaseModel):
@@ -83,3 +88,56 @@ class PresenceEventItem(BaseModel):
 class PresenceHistoryResponse(BaseModel):
     sessions: list[PresenceSessionItem]
     events: list[PresenceEventItem]
+
+
+class ZoneCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    polygon: list[tuple[float, float]] = Field(min_length=3, max_length=30)
+
+
+class ZoneItem(BaseModel):
+    id: str
+    name: str
+    polygon: list[tuple[float, float]]
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ZoneListResponse(BaseModel):
+    zones: list[ZoneItem]
+
+
+class ZoneSessionItem(BaseModel):
+    id: int
+    presence_session_id: int
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    zone_id: str
+    zone_name: str
+    entered_at: datetime
+    last_seen_at: datetime
+    exited_at: datetime | None = None
+    duration_seconds: float = Field(ge=0.0)
+    status: Literal["active", "closed"]
+    close_reason: str | None = None
+
+
+class ZoneEventItem(BaseModel):
+    id: int
+    zone_session_id: int
+    presence_session_id: int
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    zone_id: str
+    zone_name: str
+    event_type: Literal["ENTER_ZONE", "EXIT_ZONE"]
+    occurred_at: datetime
+    details: dict[str, Any] | None = None
+
+
+class ZoneHistoryResponse(BaseModel):
+    sessions: list[ZoneSessionItem]
+    events: list[ZoneEventItem]
