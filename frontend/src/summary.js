@@ -6,6 +6,8 @@ const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
 const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
 const OPERATIONAL_STATUS_URL = `${API_BASE_URL}/api/operations/status`;
 const OPERATIONAL_HISTORY_URL = `${API_BASE_URL}/api/operations/history`;
+const BEHAVIOR_STATUS_URL = `${API_BASE_URL}/api/behaviors/status`;
+const BEHAVIOR_HISTORY_URL = `${API_BASE_URL}/api/behaviors/history`;
 const REFRESH_MS = 2000;
 
 const summaryDate = document.querySelector("#summaryDate");
@@ -13,6 +15,8 @@ const refreshStatus = document.querySelector("#refreshStatus");
 const moduleStatus = document.querySelector("#moduleStatus");
 const counterStatus = document.querySelector("#counterStatus");
 const moduleIncidentCount = document.querySelector("#moduleIncidentCount");
+const activePhoneSignals = document.querySelector("#activePhoneSignals");
+const phoneIncidentCount = document.querySelector("#phoneIncidentCount");
 const activeEmployees = document.querySelector("#activeEmployees");
 const detectedEmployees = document.querySelector("#detectedEmployees");
 const totalPresence = document.querySelector("#totalPresence");
@@ -38,13 +42,17 @@ async function refreshSummary() {
       zoneResponse,
       interactionResponse,
       operationalStatusResponse,
-      operationalHistoryResponse
+      operationalHistoryResponse,
+      behaviorStatusResponse,
+      behaviorHistoryResponse
     ] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=1`),
       fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=1`),
       fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=1`),
       fetch(OPERATIONAL_STATUS_URL),
-      fetch(`${OPERATIONAL_HISTORY_URL}?incident_limit=500&event_limit=1`)
+      fetch(`${OPERATIONAL_HISTORY_URL}?incident_limit=500&event_limit=1`),
+      fetch(BEHAVIOR_STATUS_URL),
+      fetch(`${BEHAVIOR_HISTORY_URL}?incident_limit=500&event_limit=1`)
     ]);
 
     const responses = [
@@ -52,35 +60,61 @@ async function refreshSummary() {
       [zoneResponse, "Historial de zonas"],
       [interactionResponse, "Historial de interacciones"],
       [operationalStatusResponse, "Estado operativo"],
-      [operationalHistoryResponse, "Historial operativo"]
+      [operationalHistoryResponse, "Historial operativo"],
+      [behaviorStatusResponse, "Estado de comportamientos"],
+      [behaviorHistoryResponse, "Historial de comportamientos"]
     ];
+
     for (const [response, label] of responses) {
       if (!response.ok) throw new Error(`${label}: API ${response.status}`);
     }
 
-    const [presence, zones, interactions, operationalStatusData, operationalHistory] = await Promise.all([
+    const [
+      presence,
+      zones,
+      interactions,
+      operationalStatusData,
+      operationalHistory,
+      behaviorStatusData,
+      behaviorHistory
+    ] = await Promise.all([
       presenceResponse.json(),
       zoneResponse.json(),
       interactionResponse.json(),
       operationalStatusResponse.json(),
-      operationalHistoryResponse.json()
+      operationalHistoryResponse.json(),
+      behaviorStatusResponse.json(),
+      behaviorHistoryResponse.json()
     ]);
+
+    const dateValue = summaryDate.value;
+    const behaviorIncidents = filterIncidentsForDate(
+      behaviorHistory.incidents ?? [],
+      dateValue
+    );
 
     const employees = aggregateEmployees(
       presence.sessions ?? [],
       zones.sessions ?? [],
       interactions.sessions ?? [],
+      behaviorIncidents,
+      isToday(dateValue) ? behaviorStatusData.signals ?? [] : [],
       operationalStatusData.counter_zone_names ?? [],
-      summaryDate.value
+      dateValue
     );
 
-    const incidents = filterIncidentsForDate(
+    const operationalIncidents = filterIncidentsForDate(
       operationalHistory.incidents ?? [],
-      summaryDate.value
+      dateValue
     );
 
-    renderOperationalStatus(operationalStatusData, incidents.length);
+    renderOperationalStatus(operationalStatusData, operationalIncidents.length);
+    renderBehaviorStatus(
+      behaviorStatusData.signals ?? [],
+      behaviorIncidents
+    );
     renderSummary(employees);
+
     summaryError.hidden = true;
     refreshStatus.textContent = `Actualizado ${formatClock(new Date())}`;
   } catch (error) {
@@ -97,13 +131,17 @@ function aggregateEmployees(
   presenceSessions,
   zoneSessions,
   interactionSessions,
+  behaviorIncidents,
+  liveBehaviorSignals,
   counterZoneNames,
   dateValue
 ) {
   const bounds = getDayBounds(dateValue);
   const now = new Date();
   const employees = new Map();
-  const counterKeys = new Set(counterZoneNames.map((name) => String(name).trim().toLocaleLowerCase("es")));
+  const counterKeys = new Set(
+    counterZoneNames.map((name) => String(name).trim().toLocaleLowerCase("es"))
+  );
 
   for (const session of presenceSessions) {
     const start = new Date(session.started_at);
@@ -155,11 +193,15 @@ function aggregateEmployees(
       zoneName: session.zone_name,
       seconds: 0
     };
+
     current.seconds += seconds;
     item.zones.set(key, current);
     item.totalZoneSeconds += seconds;
 
-    const zoneNameKey = String(session.zone_name ?? "").trim().toLocaleLowerCase("es");
+    const zoneNameKey = String(session.zone_name ?? "")
+      .trim()
+      .toLocaleLowerCase("es");
+
     if (counterKeys.has(zoneNameKey)) {
       item.counterSeconds += seconds;
       if (session.status === "active") item.atCounter = true;
@@ -192,6 +234,33 @@ function aggregateEmployees(
     if (session.status === "active") item.activeInteractionCount += 1;
   }
 
+  for (const incident of behaviorIncidents) {
+    if (incident.behavior_type !== "PHONE_USE_LONG") continue;
+    const item = employees.get(String(incident.identity_id));
+    if (!item) continue;
+
+    const start = new Date(incident.started_at);
+    const rawEnd = incident.status === "active"
+      ? now
+      : new Date(incident.ended_at ?? incident.last_seen_at);
+    const clippedStart = new Date(Math.max(start.getTime(), bounds.start.getTime()));
+    const clippedEnd = new Date(Math.min(rawEnd.getTime(), bounds.end.getTime()));
+
+    item.phoneIncidentCount += 1;
+    item.phoneIncidentSeconds += Math.max(0, (clippedEnd - clippedStart) / 1000);
+  }
+
+  for (const signal of liveBehaviorSignals) {
+    if (signal.behavior_type !== "PHONE_USE_LONG") continue;
+    const item = employees.get(String(signal.identity_id));
+    if (!item) continue;
+
+    item.phoneVisibleNow = Boolean(signal.phone_visible_now);
+    item.phoneVisibleSeconds = Number(signal.phone_visible_seconds) || 0;
+    item.phoneUseLong = Boolean(signal.confirmed);
+    item.phoneSignalConfidence = Number(signal.confidence) || 0;
+  }
+
   const result = [...employees.values()].map((item) => ({
     ...item,
     unassignedSeconds: Math.max(0, item.totalPresenceSeconds - item.totalZoneSeconds),
@@ -209,6 +278,7 @@ function aggregateEmployees(
 function getEmployee(map, identityId, identityName) {
   const key = String(identityId);
   let item = map.get(key);
+
   if (!item) {
     item = {
       identityId: key,
@@ -228,6 +298,12 @@ function getEmployee(map, identityId, identityName) {
       totalInteractionSeconds: 0,
       counterSeconds: 0,
       atCounter: false,
+      phoneIncidentCount: 0,
+      phoneIncidentSeconds: 0,
+      phoneVisibleNow: false,
+      phoneVisibleSeconds: 0,
+      phoneUseLong: false,
+      phoneSignalConfidence: 0,
       currentZoneId: null,
       currentZoneName: null,
       currentZoneEnteredAt: null,
@@ -235,6 +311,7 @@ function getEmployee(map, identityId, identityName) {
     };
     map.set(key, item);
   }
+
   return item;
 }
 
@@ -261,12 +338,37 @@ function renderOperationalStatus(statusData, incidentCount) {
   }
 }
 
+function renderBehaviorStatus(signals, incidents) {
+  const activeSignals = signals.filter(
+    (signal) => signal.behavior_type === "PHONE_USE_LONG" && signal.phone_visible_now
+  );
+
+  const confirmedIncidents = incidents.filter(
+    (incident) => incident.behavior_type === "PHONE_USE_LONG"
+  );
+
+  activePhoneSignals.textContent = String(activeSignals.length);
+  phoneIncidentCount.textContent = String(confirmedIncidents.length);
+}
+
 function renderSummary(employees) {
   const active = employees.filter((employee) => employee.status === "active").length;
-  const presenceSeconds = employees.reduce((sum, employee) => sum + employee.totalPresenceSeconds, 0);
-  const zoneSeconds = employees.reduce((sum, employee) => sum + employee.totalZoneSeconds, 0);
-  const interactionCount = employees.reduce((sum, employee) => sum + employee.interactionCount, 0);
-  const interactionSeconds = employees.reduce((sum, employee) => sum + employee.totalInteractionSeconds, 0);
+  const presenceSeconds = employees.reduce(
+    (sum, employee) => sum + employee.totalPresenceSeconds,
+    0
+  );
+  const zoneSeconds = employees.reduce(
+    (sum, employee) => sum + employee.totalZoneSeconds,
+    0
+  );
+  const interactionCount = employees.reduce(
+    (sum, employee) => sum + employee.interactionCount,
+    0
+  );
+  const interactionSeconds = employees.reduce(
+    (sum, employee) => sum + employee.totalInteractionSeconds,
+    0
+  );
 
   activeEmployees.textContent = String(active);
   detectedEmployees.textContent = String(employees.length);
@@ -307,12 +409,27 @@ function createEmployeeCard(employee) {
 
   const currentZone = document.createElement("p");
   currentZone.className = "employee-current-zone";
+
   if (employee.status === "active") {
-    const interactionText = employee.activeInteractionCount > 0
-      ? ` · ${employee.activeInteractionCount} interacción${employee.activeInteractionCount === 1 ? "" : "es"} activa${employee.activeInteractionCount === 1 ? "" : "s"}`
-      : "";
-    const counterText = employee.atCounter ? " · EN COUNTER" : "";
-    currentZone.textContent = `Zona actual: ${employee.currentZoneName ?? "Sin zona"}${counterText}${interactionText}`;
+    const badges = [];
+
+    if (employee.atCounter) badges.push("EN COUNTER");
+    if (employee.activeInteractionCount > 0) {
+      badges.push(
+        `${employee.activeInteractionCount} interacción${employee.activeInteractionCount === 1 ? "" : "es"} activa${employee.activeInteractionCount === 1 ? "" : "s"}`
+      );
+    }
+    if (employee.phoneVisibleNow) {
+      badges.push(
+        employee.phoneUseLong
+          ? `CELULAR >10 MIN (${formatDuration(employee.phoneVisibleSeconds)})`
+          : `celular visible ${formatDuration(employee.phoneVisibleSeconds)}`
+      );
+    }
+
+    currentZone.textContent = `Zona actual: ${employee.currentZoneName ?? "Sin zona"}${
+      badges.length ? ` · ${badges.join(" · ")}` : ""
+    }`;
   } else {
     currentZone.textContent = "Sin presencia activa";
   }
@@ -325,8 +442,13 @@ function createEmployeeCard(employee) {
     createDetail("Tiempo counter", formatDuration(employee.counterSeconds)),
     createDetail("Interacciones", String(employee.interactionCount)),
     createDetail("Tiempo interacción", formatDuration(employee.totalInteractionSeconds)),
+    createDetail("Celular >10 min", String(employee.phoneIncidentCount)),
+    createDetail("Tiempo señal celular", formatDuration(employee.phoneIncidentSeconds)),
     createDetail("Primera detección", formatClock(employee.firstSeen)),
-    createDetail("Última detección", employee.status === "active" ? "Ahora" : formatClock(employee.lastSeen)),
+    createDetail(
+      "Última detección",
+      employee.status === "active" ? "Ahora" : formatClock(employee.lastSeen)
+    ),
     createDetail("Sesiones", String(employee.sessionCount)),
     createDetail("Track actual", employee.trackerId == null ? "-" : `ID ${employee.trackerId}`)
   );
@@ -361,22 +483,31 @@ function createEmployeeCard(employee) {
 function filterIncidentsForDate(incidents, dateValue) {
   const bounds = getDayBounds(dateValue);
   const now = new Date();
+
   return incidents.filter((incident) => {
     const start = new Date(incident.started_at);
     const end = incident.status === "active"
       ? now
-      : new Date(incident.ended_at ?? incident.confirmed_at);
+      : new Date(incident.ended_at ?? incident.confirmed_at ?? incident.last_seen_at);
+
     return datesOverlap(start, end, bounds.start, bounds.end);
   });
+}
+
+function isToday(dateValue) {
+  return dateValue === localDateValue(new Date());
 }
 
 function createDetail(label, value) {
   const wrapper = document.createElement("div");
   wrapper.className = "employee-detail";
+
   const key = document.createElement("span");
   key.textContent = label;
+
   const data = document.createElement("strong");
   data.textContent = value;
+
   wrapper.append(key, data);
   return wrapper;
 }
@@ -390,6 +521,7 @@ function createZoneRow(zone, totalPresenceSeconds) {
 
   const bar = document.createElement("div");
   bar.className = "zone-bar";
+
   const fill = document.createElement("i");
   const percent = totalPresenceSeconds > 0
     ? Math.min(100, (zone.seconds / totalPresenceSeconds) * 100)
@@ -434,6 +566,7 @@ function formatClock(value) {
   if (!value) return "-";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+
   return date.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
