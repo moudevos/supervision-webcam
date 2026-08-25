@@ -1,19 +1,23 @@
 # Supervision Webcam
 
-MVP web para detección de personas en tiempo real usando la cámara del navegador y un backend local de visión por computadora.
+MVP web local para detección, tracking temporal y reconocimiento facial desde la cámara del navegador.
 
 ## Alcance actual
 
-Este primer módulo hace únicamente:
+El proyecto ya implementa:
 
-1. Abrir la webcam desde el navegador.
-2. Capturar frames en el frontend.
-3. Enviar frames al backend FastAPI.
-4. Ejecutar detección de personas con YOLOX Nano ONNX.
-5. Normalizar detecciones con Supervision.
-6. Dibujar bounding boxes en el navegador.
+1. Webcam desde el navegador.
+2. Detección de personas con YOLOX Nano ONNX.
+3. Tracking temporal con Supervision + ByteTrack.
+4. Estados `visible`, `lost` y `out` por `tracker_id`.
+5. Tiempo de sesión por track.
+6. Registro facial local.
+7. Detección facial con YuNet.
+8. Embeddings y comparación facial con SFace.
+9. Asociación `tracker_id -> identidad` mediante varias coincidencias consecutivas.
+10. UI en tiempo real con nombre confirmado o persona sin identificar.
 
-Todavía no incluye tracking, reconocimiento facial, base de datos, métricas ni IA generativa.
+Todavía no incluye historial persistente de sesiones, zonas, métricas laborales ni IA generativa.
 
 ## Arquitectura
 
@@ -27,20 +31,20 @@ Vite + JavaScript
       v
 FastAPI / Python
       |
-      v
-YOLOX Nano + ONNX Runtime
+      +--> YOLOX Nano --> ByteTrack --> TrackStateManager
+      |
+      +--> YuNet --> SFace --> FaceRegistry --> IdentityManager
       |
       v
-Supervision
+JSON detections + tracks + identity
       |
-      | JSON detections
       v
-Canvas overlay
+Canvas + panel en tiempo real
 ```
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.12 recomendado
 - Node.js 20+
 - Webcam
 
@@ -60,10 +64,24 @@ python scripts/download_model.py
 uvicorn app.main:app --reload --port 8000
 ```
 
+El script descarga:
+
+- `yolox_nano.onnx`
+- `face_detection_yunet_2023mar.onnx`
+- `face_recognition_sface_2021dec.onnx`
+
 Comprobar:
 
 ```text
 http://localhost:8000/health
+```
+
+Para reconocimiento facial debe aparecer:
+
+```json
+{
+  "face_recognition_ready": true
+}
 ```
 
 ## Frontend
@@ -82,14 +100,48 @@ Abrir:
 http://localhost:5173
 ```
 
-## Variables de entorno
+## Registro facial
 
-El backend funciona con valores por defecto. Para personalizarlo, copia `.env.example` a `.env` y ajusta las variables necesarias.
+1. Enciende la cámara.
+2. Escribe el nombre de la persona.
+3. Asegúrate de que solo haya un rostro visible.
+4. Pulsa `Registrar rostro`.
+5. Registra idealmente 3 a 5 muestras con pequeñas variaciones de ángulo e iluminación.
 
-## Modelo
+No se guardan fotografías durante este MVP. Se almacenan únicamente embeddings numéricos en:
 
-El script `backend/scripts/download_model.py` descarga `yolox_nano.onnx` desde el release oficial de YOLOX. Los pesos no se versionan en Git.
+```text
+backend/data/face_registry.json
+```
+
+Ese archivo está excluido de Git.
+
+## Reconocimiento
+
+El reconocimiento no se ejecuta en cada frame. Se realiza periódicamente y requiere varias coincidencias consecutivas antes de confirmar una identidad para un `tracker_id`.
+
+Ejemplo:
+
+```text
+Track ID 4
+   -> candidato Mauricio
+   -> coincidencia 1
+   -> coincidencia 2
+   -> coincidencia 3
+   -> identidad confirmada: Mauricio
+```
+
+Si la persona sale y vuelve con otro track, el reconocimiento puede volver a asociar ese nuevo `tracker_id` con la misma identidad registrada.
+
+## Modelos y licencias
+
+- YOLOX: Apache 2.0.
+- YuNet: MIT.
+- SFace: Apache 2.0.
+- Supervision: MIT.
+
+Los pesos ONNX no se versionan en este repositorio.
 
 ## Siguiente módulo
 
-Cuando detección y latencia sean aceptables, el siguiente paso será tracking persistente de personas entre frames.
+El siguiente paso es historial persistente: almacenar sesiones y eventos vinculados a una identidad confirmada, sin usar el `tracker_id` como identidad permanente.
