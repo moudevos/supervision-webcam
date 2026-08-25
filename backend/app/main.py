@@ -6,10 +6,11 @@ import numpy as np
 from app.core.config import settings
 from app.vision.detector import detector
 from app.vision.schemas import DetectionResponse
+from app.vision.track_state import track_state_manager
 from app.vision.tracker import tracker
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.2.0")
+app = FastAPI(title="Supervision Webcam API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,12 +28,14 @@ def health() -> dict:
         "detector_ready": detector.ready,
         "model_path": str(detector.model_path),
         "tracking": "ByteTrack",
+        "temporal_state": True,
     }
 
 
 @app.post("/api/vision/tracking/reset")
 def reset_tracking() -> dict:
     tracker.reset()
+    track_state_manager.reset()
     return {"status": "ok"}
 
 
@@ -53,6 +56,7 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
 
     detections, inference_ms = detector.detect(image)
     tracked_detections = tracker.update(detections)
+    track_states = track_state_manager.update(tracked_detections)
     height, width = image.shape[:2]
 
     return DetectionResponse(
@@ -61,4 +65,5 @@ async def detect(file: UploadFile = File(...)) -> DetectionResponse:
         image_height=height,
         inference_ms=round(inference_ms, 2),
         detections=tracked_detections,
+        tracks=track_states,
     )
