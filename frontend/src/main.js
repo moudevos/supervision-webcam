@@ -39,7 +39,7 @@ async function startCamera() {
     await resetTracking();
 
     resizeCanvases();
-    renderActiveTracks([]);
+    renderTrackedPeople([]);
     status.textContent = "Detectando";
     status.classList.add("status--active");
     startButton.disabled = true;
@@ -65,7 +65,7 @@ function stopCamera() {
 
   void resetTracking();
   clearOverlay();
-  renderActiveTracks([]);
+  renderTrackedPeople([]);
   peopleCount.textContent = "0";
   inferenceMs.textContent = "-";
   status.textContent = "Cámara apagada";
@@ -107,7 +107,7 @@ async function runDetection() {
 
     const result = await response.json();
     drawDetections(result);
-    renderActiveTracks(result.detections);
+    renderTrackedPeople(result.tracks ?? []);
     peopleCount.textContent = String(result.detections.length);
     inferenceMs.textContent = String(result.inference_ms);
     status.textContent = "Detectando";
@@ -120,12 +120,8 @@ async function runDetection() {
   }
 }
 
-function renderActiveTracks(detections) {
-  const tracks = [...detections].sort((a, b) => {
-    const aId = a.tracker_id ?? Number.MAX_SAFE_INTEGER;
-    const bId = b.tracker_id ?? Number.MAX_SAFE_INTEGER;
-    return aId - bId;
-  });
+function renderTrackedPeople(trackStates) {
+  const tracks = [...trackStates].sort((a, b) => a.tracker_id - b.tracker_id);
 
   activeTrackCount.textContent = String(tracks.length);
   activeTracks.replaceChildren();
@@ -133,39 +129,104 @@ function renderActiveTracks(detections) {
   if (tracks.length === 0) {
     const empty = document.createElement("p");
     empty.className = "tracks-empty";
-    empty.textContent = "Sin personas visibles.";
+    empty.textContent = "Sin personas rastreadas.";
     activeTracks.appendChild(empty);
     return;
   }
 
-  for (const detection of tracks) {
-    const trackerId = detection.tracker_id ?? "?";
-    const confidence = `${(detection.confidence * 100).toFixed(0)}%`;
-
+  for (const track of tracks) {
     const card = document.createElement("article");
-    card.className = "track-card";
+    card.className = `track-card track-card--${track.status}`;
 
     const id = document.createElement("span");
     id.className = "track-id";
-    id.textContent = String(trackerId);
+    id.textContent = String(track.tracker_id);
 
-    const info = document.createElement("div");
-    info.className = "track-info";
+    const content = document.createElement("div");
+    content.className = "track-content";
+
+    const heading = document.createElement("div");
+    heading.className = "track-heading";
 
     const name = document.createElement("strong");
-    name.textContent = `Persona ${trackerId}`;
+    name.textContent = `Persona ${track.tracker_id}`;
 
-    const detail = document.createElement("span");
-    detail.textContent = `Confianza ${confidence}`;
+    const state = document.createElement("span");
+    state.className = `track-status track-status--${track.status}`;
+    state.textContent = getStatusLabel(track.status);
 
-    const visible = document.createElement("span");
-    visible.className = "track-status";
-    visible.textContent = "Visible";
+    heading.append(name, state);
 
-    info.append(name, detail);
-    card.append(id, info, visible);
+    const details = document.createElement("div");
+    details.className = "track-details";
+
+    details.append(
+      createTrackDetail("Sesión", formatDuration(track.session_seconds)),
+      createTrackDetail("Confianza", `${(track.confidence * 100).toFixed(0)}%`),
+      createTrackDetail("Primera vez", formatClock(track.first_seen_at)),
+      createTrackDetail("Última vez", formatLastSeen(track))
+    );
+
+    content.append(heading, details);
+    card.append(id, content);
     activeTracks.appendChild(card);
   }
+}
+
+function createTrackDetail(label, value) {
+  const item = document.createElement("div");
+  item.className = "track-detail";
+
+  const key = document.createElement("span");
+  key.textContent = label;
+
+  const data = document.createElement("strong");
+  data.textContent = value;
+
+  item.append(key, data);
+  return item;
+}
+
+function getStatusLabel(trackStatus) {
+  if (trackStatus === "lost") return "Perdido";
+  if (trackStatus === "out") return "Fuera de escena";
+  return "Visible";
+}
+
+function formatDuration(value) {
+  const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  }
+
+  return `${pad(minutes)}:${pad(seconds)}`;
+}
+
+function formatClock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function formatLastSeen(track) {
+  if (track.detected_now) return "Ahora";
+
+  const seconds = Math.max(0, Number(track.last_seen_seconds_ago) || 0);
+  if (seconds < 1) return "Hace <1 s";
+  return `Hace ${seconds.toFixed(1)} s`;
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
 }
 
 function drawDetections(result) {
