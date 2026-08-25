@@ -3,6 +3,8 @@ import "./styles.css";
 const API_BASE_URL = "http://localhost:8000";
 const DETECTION_URL = `${API_BASE_URL}/api/vision/detect`;
 const TRACKING_RESET_URL = `${API_BASE_URL}/api/vision/tracking/reset`;
+const FACE_LIST_URL = `${API_BASE_URL}/api/vision/faces`;
+const FACE_REGISTER_URL = `${API_BASE_URL}/api/vision/faces/register`;
 const DETECTION_INTERVAL_MS = 250;
 
 const video = document.querySelector("#camera");
@@ -15,10 +17,15 @@ const peopleCount = document.querySelector("#peopleCount");
 const inferenceMs = document.querySelector("#inferenceMs");
 const activeTracks = document.querySelector("#activeTracks");
 const activeTrackCount = document.querySelector("#activeTrackCount");
+const identityName = document.querySelector("#identityName");
+const registerFaceButton = document.querySelector("#registerFaceButton");
+const registrationStatus = document.querySelector("#registrationStatus");
+const registeredIdentities = document.querySelector("#registeredIdentities");
 
 let stream = null;
 let loopId = null;
 let requestInFlight = false;
+let faceRecognitionReady = false;
 
 const captureCanvas = document.createElement("canvas");
 const captureContext = captureCanvas.getContext("2d");
@@ -44,6 +51,11 @@ async function startCamera() {
     status.classList.add("status--active");
     startButton.disabled = true;
     stopButton.disabled = false;
+    registerFaceButton.disabled = !faceRecognitionReady;
+
+    if (faceRecognitionReady) {
+      registrationStatus.textContent = "Escribe un nombre y mira de frente a la cámara.";
+    }
 
     loopId = window.setInterval(runDetection, DETECTION_INTERVAL_MS);
   } catch (error) {
@@ -72,6 +84,11 @@ function stopCamera() {
   status.classList.remove("status--active");
   startButton.disabled = false;
   stopButton.disabled = true;
+  registerFaceButton.disabled = true;
+
+  registrationStatus.textContent = faceRecognitionReady
+    ? "Enciende la cámara para registrar otra muestra."
+    : "Modelos faciales no disponibles.";
 }
 
 async function resetTracking() {
@@ -81,17 +98,107 @@ async function resetTracking() {
   }
 }
 
+async function refreshFaceRegistry() {
+  try {
+    const response = await fetch(FACE_LIST_URL);
+    if (!response.ok) throw new Error(`API error ${response.status}`);
+
+    const result = await response.json();
+    faceRecognitionReady = Boolean(result.ready);
+    renderRegisteredIdentities(result.identities ?? []);
+
+    if (!faceRecognitionReady) {
+      registerFaceButton.disabled = true;
+      registrationStatus.textContent =
+        "Faltan los modelos YuNet/SFace. Descárgalos y reinicia el backend.";
+    } else if (!stream) {
+      registrationStatus.textContent = "Enciende la cámara para registrar una identidad.";
+    }
+  } catch (error) {
+    console.error(error);
+    faceRecognitionReady = false;
+    registerFaceButton.disabled = true;
+    registrationStatus.textContent = "No se pudo consultar el registro facial.";
+  }
+}
+
+function renderRegisteredIdentities(identities) {
+  registeredIdentities.replaceChildren();
+
+  if (identities.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "identity-empty";
+    empty.textContent = "Aún no hay identidades registradas.";
+    registeredIdentities.appendChild(empty);
+    return;
+  }
+
+  for (const identity of identities) {
+    const item = document.createElement("div");
+    item.className = "registered-identity";
+
+    const name = document.createElement("strong");
+    name.textContent = identity.name;
+
+    const samples = document.createElement("span");
+    samples.textContent = `${identity.sample_count} muestra${identity.sample_count === 1 ? "" : "s"}`;
+
+    item.append(name, samples);
+    registeredIdentities.appendChild(item);
+  }
+}
+
+async function registerCurrentFace() {
+  const name = identityName.value.trim();
+
+  if (!stream) {
+    registrationStatus.textContent = "Primero enciende la cámara.";
+    return;
+  }
+
+  if (name.length < 2) {
+    registrationStatus.textContent = "Ingresa un nombre válido.";
+    identityName.focus();
+    return;
+  }
+
+  registerFaceButton.disabled = true;
+  registrationStatus.textContent = "Capturando y generando embedding facial...";
+
+  try {
+    const blob = await captureFrameBlob();
+    const formData = new FormData();
+    formData.append("name", name);
+    formData.append("file", blob, "face-registration.jpg");
+
+    const response = await fetch(FACE_REGISTER_URL, {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.detail || `API error ${response.status}`);
+    }
+
+    const result = await response.json();
+    registrationStatus.textContent = `${result.name}: muestra ${result.sample_count} registrada.`;
+    await refreshFaceRegistry();
+  } catch (error) {
+    console.error(error);
+    registrationStatus.textContent = error.message;
+  } finally {
+    registerFaceButton.disabled = !stream || !faceRecognitionReady;
+  }
+}
+
 async function runDetection() {
   if (!stream || requestInFlight || video.readyState < 2) return;
 
   requestInFlight = true;
 
   try {
-    captureCanvas.width = video.videoWidth;
-    captureCanvas.height = video.videoHeight;
-    captureContext.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-
-    const blob = await canvasToBlob(captureCanvas, "image/jpeg", 0.72);
+    const blob = await captureFrameBlob();
     const formData = new FormData();
     formData.append("file", blob, "frame.jpg");
 
@@ -155,7 +262,9 @@ function renderTrackedPeople(trackStates) {
     heading.className = "track-heading";
 
     const name = document.createElement("strong");
-    name.textContent = `Persona ${track.tracker_id}`;
+    name.textContent = track.identity_status === "confirmed"
+      ? track.identity_name
+      : `Persona ${track.tracker_id}`;
 
     const state = document.createElement("span");
     state.className = `track-status track-status--${track.status}`;
@@ -163,20 +272,39 @@ function renderTrackedPeople(trackStates) {
 
     heading.append(name, state);
 
+    const identityLine = document.createElement("p");
+    identityLine.className = `identity-state identity-state--${track.identity_status ?? "unknown"}`;
+    identityLine.textContent = getIdentityLabel(track);
+
     const details = document.createElement("div");
     details.className = "track-details";
 
     details.append(
       createTrackDetail("Sesión", formatDuration(track.session_seconds)),
-      createTrackDetail("Confianza", `${(track.confidence * 100).toFixed(0)}%`),
+      createTrackDetail("Detección", `${(track.confidence * 100).toFixed(0)}%`),
       createTrackDetail("Primera vez", formatClock(track.first_seen_at)),
       createTrackDetail("Última vez", formatLastSeen(track))
     );
 
-    content.append(heading, details);
+    content.append(heading, identityLine, details);
     card.append(id, content);
     activeTracks.appendChild(card);
   }
+}
+
+function getIdentityLabel(track) {
+  if (track.identity_status === "confirmed" && track.identity_name) {
+    const score = Number(track.identity_score);
+    return Number.isFinite(score)
+      ? `Identidad confirmada · similitud ${score.toFixed(3)}`
+      : "Identidad confirmada";
+  }
+
+  if (track.identity_status === "candidate") {
+    return "Verificando identidad...";
+  }
+
+  return "Sin identificar";
 }
 
 function createTrackDetail(label, value) {
@@ -240,6 +368,7 @@ function drawDetections(result) {
 
   const scaleX = overlay.width / result.image_width;
   const scaleY = overlay.height / result.image_height;
+  const trackMap = new Map((result.tracks ?? []).map((track) => [track.tracker_id, track]));
 
   ctx.lineWidth = 3;
   ctx.strokeStyle = "#7cfc8a";
@@ -256,7 +385,11 @@ function drawDetections(result) {
     ctx.strokeRect(x, y, width, height);
 
     const idLabel = detection.tracker_id ?? "?";
-    const label = `ID ${idLabel} · ${(detection.confidence * 100).toFixed(0)}%`;
+    const track = trackMap.get(detection.tracker_id);
+    const label = track?.identity_status === "confirmed" && track.identity_name
+      ? `${track.identity_name} · ID ${idLabel}`
+      : `ID ${idLabel} · ${(detection.confidence * 100).toFixed(0)}%`;
+
     const textWidth = ctx.measureText(label).width;
     const labelY = Math.max(24, y);
 
@@ -265,6 +398,17 @@ function drawDetections(result) {
     ctx.fillText(label, x + 7, labelY - 7);
     ctx.fillStyle = "#7cfc8a";
   }
+}
+
+async function captureFrameBlob() {
+  if (!stream || video.readyState < 2) {
+    throw new Error("La cámara todavía no está lista.");
+  }
+
+  captureCanvas.width = video.videoWidth;
+  captureCanvas.height = video.videoHeight;
+  captureContext.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+  return canvasToBlob(captureCanvas, "image/jpeg", 0.82);
 }
 
 function resizeCanvases() {
@@ -289,5 +433,13 @@ function canvasToBlob(canvas, type, quality) {
 
 startButton.addEventListener("click", startCamera);
 stopButton.addEventListener("click", stopCamera);
+registerFaceButton.addEventListener("click", registerCurrentFace);
+identityName.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !registerFaceButton.disabled) {
+    void registerCurrentFace();
+  }
+});
 window.addEventListener("resize", resizeCanvases);
 window.addEventListener("beforeunload", stopCamera);
+
+void refreshFaceRegistry();
