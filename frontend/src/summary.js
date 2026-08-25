@@ -320,6 +320,8 @@ function renderOperationalStatus(statusData, incidentCount) {
 
   if (!statusData.monitored) {
     moduleStatus.textContent = "Sin zonas";
+  } else if (!statusData.module_armed) {
+    moduleStatus.textContent = "Esperando presencia";
   } else if (statusData.module_abandoned) {
     moduleStatus.textContent = `ABANDONO ${formatDuration(statusData.module_empty_seconds)}`;
   } else if (statusData.module_empty) {
