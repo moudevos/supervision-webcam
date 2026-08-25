@@ -45,6 +45,10 @@ class TrackStateItem(BaseModel):
     zone_session_id: int | None = None
     zone_entered_at: datetime | None = None
     zone_seconds: float | None = Field(default=None, ge=0.0)
+    zone_position_eligible: bool | None = None
+    person_height_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    in_operational_module: bool = False
+    at_counter: bool = False
     interaction_candidate_count: int = Field(default=0, ge=0)
     active_interactions: list[InteractionLiveItem] = Field(default_factory=list)
 
@@ -205,3 +209,51 @@ class InteractionHistoryResponse(BaseModel):
 
 class ActiveInteractionResponse(BaseModel):
     interactions: list[InteractionLiveItem]
+
+
+class OperationalEmployeeItem(BaseModel):
+    identity_id: str
+    identity_name: str
+    tracker_id: int | None = None
+    zone_id: str | None = None
+    zone_name: str | None = None
+
+
+class OperationalStatusResponse(BaseModel):
+    monitored: bool
+    module_zone_names: list[str]
+    counter_zone_names: list[str]
+    module_empty: bool
+    module_empty_seconds: float = Field(ge=0.0)
+    module_abandoned: bool
+    active_incident_id: int | None = None
+    employees_in_module: list[OperationalEmployeeItem]
+    counter_occupied: bool
+    employees_at_counter: list[OperationalEmployeeItem]
+    updated_at: datetime | None = None
+
+
+class OperationalIncidentItem(BaseModel):
+    id: int
+    incident_type: Literal["MODULE_ABANDONED"]
+    started_at: datetime
+    confirmed_at: datetime
+    ended_at: datetime | None = None
+    duration_seconds: float = Field(ge=0.0)
+    status: Literal["active", "closed"]
+    close_reason: str | None = None
+    details: dict[str, Any] | None = None
+
+
+class OperationalEventItem(BaseModel):
+    id: int
+    incident_id: int
+    incident_type: Literal["MODULE_ABANDONED"]
+    event_type: Literal["MODULE_ABANDONED_START", "MODULE_ABANDONED_END"]
+    occurred_at: datetime
+    details: dict[str, Any] | None = None
+
+
+class OperationalHistoryResponse(BaseModel):
+    incidents: list[OperationalIncidentItem]
+    events: list[OperationalEventItem]
