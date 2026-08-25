@@ -11,8 +11,8 @@
         <aside class="control-panel">
           <div class="control-panel__header">
             <div>
-              <p class="eyebrow">Módulo 3</p>
-              <h1>Tracking temporal</h1>
+              <p class="eyebrow">Módulo 4</p>
+              <h1>Reconocimiento facial</h1>
             </div>
             <span id="status" class="status">Cámara apagada</span>
           </div>
@@ -23,6 +23,26 @@
               <button id="startButton" type="button">Encender cámara</button>
               <button id="stopButton" type="button" disabled>Detener</button>
             </div>
+          </div>
+
+          <div class="control-section">
+            <p class="section-label">Registrar identidad</p>
+            <div class="identity-register">
+              <input
+                id="identityName"
+                type="text"
+                maxlength="80"
+                autocomplete="off"
+                placeholder="Nombre de la persona"
+              />
+              <button id="registerFaceButton" type="button" disabled>
+                Registrar rostro
+              </button>
+            </div>
+            <p id="registrationStatus" class="registration-status">
+              Enciende la cámara para registrar una identidad.
+            </p>
+            <div id="registeredIdentities" class="registered-identities"></div>
           </div>
 
           <div class="control-section">
@@ -52,7 +72,7 @@
           <div class="control-section control-section--info">
             <p class="section-label">Estado del módulo</p>
             <p class="helper-text">
-              Hasta 2 s sin detección mantiene presencia estable; de 2 a 5 s marca perdido y después pasa a fuera de escena.
+              ByteTrack mantiene el ID temporal. YuNet detecta el rostro y SFace compara su embedding contra las identidades registradas localmente.
             </p>
           </div>
         </aside>
@@ -61,7 +81,7 @@
           <div class="camera-panel__header">
             <div>
               <p class="section-label">Vista en vivo</p>
-              <p class="camera-description">Cámara + bounding boxes + tracker ID + estado temporal</p>
+              <p class="camera-description">Cámara + tracking + identidad confirmada</p>
             </div>
           </div>
 
