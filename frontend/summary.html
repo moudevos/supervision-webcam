@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resumen operativo · Supervision Webcam</title>
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="dashboard-header">
+        <div>
+          <p class="eyebrow">Módulo 7A</p>
+          <h1>Resumen operativo</h1>
+          <p class="dashboard-subtitle">
+            Estado en tiempo real y consolidado diario por empleado reconocido.
+          </p>
+          <nav class="app-nav" aria-label="Navegación principal">
+            <a href="/">Cámara</a>
+            <a href="/summary.html" aria-current="page">Resumen</a>
+            <a href="/history.html">Historial</a>
+          </nav>
+        </div>
+
+        <div class="dashboard-toolbar">
+          <div class="toolbar-field">
+            <label for="summaryDate">Fecha</label>
+            <input id="summaryDate" type="date" />
+          </div>
+          <span id="refreshStatus" class="live-indicator">Actualizando</span>
+        </div>
+      </header>
+
+      <section class="dashboard-metrics" aria-label="Métricas generales">
+        <article class="dashboard-card">
+          <span>Empleados activos</span>
+          <strong id="activeEmployees">0</strong>
+        </article>
+        <article class="dashboard-card">
+          <span>Empleados detectados</span>
+          <strong id="detectedEmployees">0</strong>
+        </article>
+        <article class="dashboard-card">
+          <span>Presencia acumulada</span>
+          <strong id="totalPresence">00:00:00</strong>
+        </article>
+        <article class="dashboard-card">
+          <span>Tiempo en zonas</span>
+          <strong id="totalZoneTime">00:00:00</strong>
+        </article>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Resumen por empleado</h2>
+          <span id="employeeCount" class="section-count">0</span>
+        </div>
+        <div id="employeeGrid" class="employee-grid">
+          <div class="empty-state">Todavía no hay datos para esta fecha.</div>
+        </div>
+      </section>
+
+      <div id="summaryError" class="error-state" hidden></div>
+    </main>
+
+    <script type="module" src="/src/summary.js"></script>
+  </body>
+</html>
