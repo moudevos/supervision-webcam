@@ -17,7 +17,7 @@ from app.vision.track_state import track_state_manager
 from app.vision.tracker import tracker
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.4.0")
+app = FastAPI(title="Supervision Webcam API", version="0.4.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,14 +30,17 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
+    face_diagnostics = face_engine.diagnostics()
+
     return {
         "status": "ok",
         "detector_ready": detector.ready,
         "model_path": str(detector.model_path),
         "tracking": "ByteTrack",
         "temporal_state": True,
-        "face_recognition_ready": face_engine.ready,
+        "face_recognition_ready": face_diagnostics["ready"],
         "face_registry_size": len(face_registry.list_people()),
+        "face_models": face_diagnostics,
         "calibration": {
             "detection_floor": settings.confidence_threshold,
             "track_activation": settings.tracker_activation_threshold,
@@ -63,10 +66,11 @@ async def register_face(
     file: UploadFile = File(...),
 ) -> FaceRegistrationResponse:
     if not face_engine.ready:
-        raise HTTPException(
-            status_code=503,
-            detail="Los modelos faciales no están disponibles. Ejecuta python scripts/download_model.py y reinicia el backend.",
+        detail = face_engine.load_error or (
+            "Los modelos faciales no están disponibles. "
+            "Ejecuta python scripts/download_model.py."
         )
+        raise HTTPException(status_code=503, detail=detail)
 
     image = await decode_upload(file)
 
