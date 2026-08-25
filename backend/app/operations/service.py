@@ -17,6 +17,7 @@ class OperationalManager:
         self.store = OperationalStore(settings.resolved_presence_db_path)
         self._empty_started_at: datetime | None = None
         self._active_incident_id: int | None = None
+        self._module_armed = False
         self._last_persisted_monotonic = 0.0
         self._last_status: dict = self._empty_status()
         self._lock = Lock()
@@ -33,6 +34,7 @@ class OperationalManager:
                 )
             self._empty_started_at = None
             self._active_incident_id = None
+            self._module_armed = False
             self._last_persisted_monotonic = 0.0
             self._last_status = self._empty_status()
 
@@ -69,6 +71,9 @@ class OperationalManager:
             counter_keys = {_zone_key(name) for name in counter_names}
             monitored = bool(module_keys)
 
+            if not monitored:
+                self._module_armed = False
+
             employees = [
                 track
                 for track in tracks
@@ -91,7 +96,12 @@ class OperationalManager:
                 if _zone_key(track.get("current_zone_name")) in counter_keys
             ] if counter_keys else []
 
-            if monitored and not employees_in_module:
+            if monitored and employees_in_module:
+                self._module_armed = True
+
+            should_watch_empty = monitored and self._module_armed
+
+            if should_watch_empty and not employees_in_module:
                 if self._empty_started_at is None:
                     self._empty_started_at = now
 
@@ -124,7 +134,11 @@ class OperationalManager:
                         incident_id=self._active_incident_id,
                         incident_type=self.incident_type,
                         ended_at=now,
-                        close_reason="employee_returned" if monitored else "module_unconfigured",
+                        close_reason=(
+                            "employee_returned"
+                            if monitored and employees_in_module
+                            else "module_unconfigured"
+                        ),
                         details={
                             "employees_in_module": [
                                 str(track.get("identity_name") or track.get("identity_id"))
@@ -135,14 +149,12 @@ class OperationalManager:
                     self._active_incident_id = None
                     self._last_persisted_monotonic = 0.0
 
-            if not monitored:
-                empty_seconds = 0.0
-
             self._last_status = {
                 "monitored": monitored,
+                "module_armed": self._module_armed,
                 "module_zone_names": module_names,
                 "counter_zone_names": counter_names,
-                "module_empty": monitored and not employees_in_module,
+                "module_empty": should_watch_empty and not employees_in_module,
                 "module_empty_seconds": round(empty_seconds, 2),
                 "module_abandoned": self._active_incident_id is not None,
                 "active_incident_id": self._active_incident_id,
@@ -184,6 +196,7 @@ class OperationalManager:
     def _empty_status() -> dict:
         return {
             "monitored": False,
+            "module_armed": False,
             "module_zone_names": [],
             "counter_zone_names": [],
             "module_empty": False,
