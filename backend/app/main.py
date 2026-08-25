@@ -10,7 +10,7 @@ from app.vision.track_state import track_state_manager
 from app.vision.tracker import tracker
 
 
-app = FastAPI(title="Supervision Webcam API", version="0.3.0")
+app = FastAPI(title="Supervision Webcam API", version="0.3.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +29,14 @@ def health() -> dict:
         "model_path": str(detector.model_path),
         "tracking": "ByteTrack",
         "temporal_state": True,
+        "calibration": {
+            "detection_floor": settings.confidence_threshold,
+            "track_activation": settings.tracker_activation_threshold,
+            "lost_buffer": settings.tracker_lost_buffer,
+            "matching_threshold": settings.tracker_matching_threshold,
+            "minimum_consecutive_frames": settings.tracker_min_consecutive_frames,
+            "min_box_area_ratio": settings.min_box_area_ratio,
+        },
     }
 
 
