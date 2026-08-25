@@ -11,8 +11,8 @@
         <aside class="control-panel">
           <div class="control-panel__header">
             <div>
-              <p class="eyebrow">Módulo 5</p>
-              <h1>Presencia e historial</h1>
+              <p class="eyebrow">Módulo 6</p>
+              <h1>Zonas y permanencia</h1>
             </div>
             <span id="status" class="status">Cámara apagada</span>
           </div>
@@ -59,6 +59,36 @@
             </div>
           </div>
 
+          <div class="control-section zone-section">
+            <div class="section-heading-row">
+              <p class="section-label">Zonas</p>
+              <span id="zoneCount" class="track-count">0</span>
+            </div>
+
+            <div class="zone-config">
+              <input
+                id="zoneName"
+                type="text"
+                maxlength="80"
+                autocomplete="off"
+                placeholder="Ej. Atención"
+              />
+              <div class="zone-actions">
+                <button id="startZoneButton" type="button" disabled>Dibujar zona</button>
+                <button id="saveZoneButton" type="button" disabled>Guardar</button>
+                <button id="cancelZoneButton" type="button" disabled>Cancelar</button>
+              </div>
+            </div>
+
+            <p id="zoneStatus" class="registration-status">
+              Enciende la cámara para configurar zonas.
+            </p>
+
+            <div id="zoneList" class="zone-list">
+              <span class="identity-empty">Aún no hay zonas configuradas.</span>
+            </div>
+          </div>
+
           <div class="control-section active-tracks-section">
             <div class="section-heading-row">
               <p class="section-label">Personas rastreadas</p>
@@ -82,7 +112,7 @@
           <div class="control-section control-section--info">
             <p class="section-label">Estado del módulo</p>
             <p class="helper-text">
-              La identidad confirmada abre una sesión local. Solo se guardan sesiones y eventos relevantes; no se almacenan frames de video.
+              La posición se calcula con el punto inferior-central del bounding box. Las zonas se guardan normalizadas y la permanencia se registra en SQLite.
             </p>
           </div>
         </aside>
@@ -91,7 +121,7 @@
           <div class="camera-panel__header">
             <div>
               <p class="section-label">Vista en vivo</p>
-              <p class="camera-description">Cámara + tracking + identidad + sesión de presencia</p>
+              <p class="camera-description">Cámara + tracking + identidad + zonas + permanencia</p>
             </div>
           </div>
 
