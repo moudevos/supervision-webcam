@@ -12,7 +12,7 @@
           <p class="eyebrow">Módulo 7B</p>
           <h1>Historial</h1>
           <p class="dashboard-subtitle">
-            Sesiones de presencia, permanencia por zona y eventos registrados.
+            Presencia, permanencia por zona, interacciones confirmadas y eventos registrados.
           </p>
           <nav class="app-nav" aria-label="Navegación principal">
             <a href="/">Cámara</a>
@@ -79,6 +79,31 @@
                 </tr>
               </thead>
               <tbody id="zoneTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header">
+          <h2>Interacciones confirmadas</h2>
+          <span id="interactionSessionCount" class="section-count">0</span>
+        </div>
+        <div class="table-card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Empleado</th>
+                  <th>Otra persona</th>
+                  <th>Zona</th>
+                  <th>Inicio</th>
+                  <th>Fin</th>
+                  <th>Duración</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="interactionTableBody"></tbody>
             </table>
           </div>
         </div>
