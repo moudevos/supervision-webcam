@@ -3,6 +3,7 @@ import "./dashboard.css";
 const API_BASE_URL = "http://localhost:8000";
 const PRESENCE_HISTORY_URL = `${API_BASE_URL}/api/presence/history`;
 const ZONE_HISTORY_URL = `${API_BASE_URL}/api/zones/history`;
+const INTERACTION_HISTORY_URL = `${API_BASE_URL}/api/interactions/history`;
 const REFRESH_MS = 3000;
 
 const historyDate = document.querySelector("#historyDate");
@@ -10,14 +11,17 @@ const employeeFilter = document.querySelector("#employeeFilter");
 const historyRefreshStatus = document.querySelector("#historyRefreshStatus");
 const presenceSessionCount = document.querySelector("#presenceSessionCount");
 const zoneSessionCount = document.querySelector("#zoneSessionCount");
+const interactionSessionCount = document.querySelector("#interactionSessionCount");
 const eventCount = document.querySelector("#eventCount");
 const presenceTableBody = document.querySelector("#presenceTableBody");
 const zoneTableBody = document.querySelector("#zoneTableBody");
+const interactionTableBody = document.querySelector("#interactionTableBody");
 const timelineList = document.querySelector("#timelineList");
 const historyError = document.querySelector("#historyError");
 
 let presenceData = { sessions: [], events: [] };
 let zoneData = { sessions: [], events: [] };
+let interactionData = { sessions: [], events: [] };
 let refreshInFlight = false;
 
 historyDate.value = localDateValue(new Date());
@@ -29,9 +33,10 @@ async function refreshHistory() {
   refreshInFlight = true;
 
   try {
-    const [presenceResponse, zoneResponse] = await Promise.all([
+    const [presenceResponse, zoneResponse, interactionResponse] = await Promise.all([
       fetch(`${PRESENCE_HISTORY_URL}?session_limit=200&event_limit=500`),
-      fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=500`)
+      fetch(`${ZONE_HISTORY_URL}?session_limit=300&event_limit=500`),
+      fetch(`${INTERACTION_HISTORY_URL}?session_limit=300&event_limit=500`)
     ]);
 
     if (!presenceResponse.ok) {
@@ -40,10 +45,14 @@ async function refreshHistory() {
     if (!zoneResponse.ok) {
       throw new Error(`Historial de zonas: API ${zoneResponse.status}`);
     }
+    if (!interactionResponse.ok) {
+      throw new Error(`Historial de interacciones: API ${interactionResponse.status}`);
+    }
 
-    [presenceData, zoneData] = await Promise.all([
+    [presenceData, zoneData, interactionData] = await Promise.all([
       presenceResponse.json(),
-      zoneResponse.json()
+      zoneResponse.json(),
+      interactionResponse.json()
     ]);
 
     refreshEmployeeFilter();
@@ -68,6 +77,9 @@ function refreshEmployeeFilter() {
     identities.set(String(session.identity_id), session.identity_name);
   }
   for (const session of zoneData.sessions ?? []) {
+    identities.set(String(session.identity_id), session.identity_name);
+  }
+  for (const session of interactionData.sessions ?? []) {
     identities.set(String(session.identity_id), session.identity_name);
   }
 
@@ -104,6 +116,9 @@ function renderHistory() {
   const zoneSessions = (zoneData.sessions ?? []).filter((session) =>
     matchesSession(session, identityId, bounds, "entered_at", "exited_at", "last_seen_at")
   );
+  const interactionSessions = (interactionData.sessions ?? []).filter((session) =>
+    matchesSession(session, identityId, bounds, "started_at", "ended_at", "last_seen_at")
+  );
 
   const presenceEvents = (presenceData.events ?? [])
     .filter((event) => matchesEvent(event, identityId, bounds))
@@ -111,16 +126,22 @@ function renderHistory() {
   const zoneEvents = (zoneData.events ?? [])
     .filter((event) => matchesEvent(event, identityId, bounds))
     .map((event) => ({ ...event, source: "zone" }));
-  const events = [...presenceEvents, ...zoneEvents].sort(
+  const interactionEvents = (interactionData.events ?? [])
+    .filter((event) => matchesEvent(event, identityId, bounds))
+    .map((event) => ({ ...event, source: "interaction" }));
+
+  const events = [...presenceEvents, ...zoneEvents, ...interactionEvents].sort(
     (a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)
   );
 
   renderPresenceTable(presenceSessions);
   renderZoneTable(zoneSessions);
+  renderInteractionTable(interactionSessions);
   renderTimeline(events);
 
   presenceSessionCount.textContent = String(presenceSessions.length);
   zoneSessionCount.textContent = String(zoneSessions.length);
+  interactionSessionCount.textContent = String(interactionSessions.length);
   eventCount.textContent = String(events.length);
 }
 
@@ -168,6 +189,31 @@ function renderZoneTable(sessions) {
   }
 }
 
+function renderInteractionTable(sessions) {
+  interactionTableBody.replaceChildren();
+
+  if (sessions.length === 0) {
+    appendEmptyRow(interactionTableBody, 7, "Sin interacciones confirmadas para estos filtros.");
+    return;
+  }
+
+  for (const session of sessions) {
+    const row = document.createElement("tr");
+    const other = session.other_identity_name
+      ?? (session.other_tracker_id == null ? "Persona" : `Persona ID ${session.other_tracker_id}`);
+    row.append(
+      createCell(session.identity_name),
+      createCell(other),
+      createCell(session.zone_name ?? "Sin zona"),
+      createCell(formatDateTime(session.started_at)),
+      createCell(session.status === "active" ? "Ahora" : formatDateTime(session.ended_at)),
+      createCell(formatDuration(effectiveDuration(session, "started_at", "ended_at", "last_seen_at"))),
+      createStatusCell(session.status)
+    );
+    interactionTableBody.appendChild(row);
+  }
+}
+
 function renderTimeline(events) {
   timelineList.replaceChildren();
 
@@ -193,9 +239,16 @@ function renderTimeline(events) {
 
     const description = document.createElement("span");
     description.className = "timeline-description";
-    description.textContent = event.source === "zone"
-      ? `${event.identity_name} · ${event.zone_name}`
-      : `${event.identity_name}${event.tracker_id == null ? "" : ` · ID ${event.tracker_id}`}`;
+    if (event.source === "zone") {
+      description.textContent = `${event.identity_name} · ${event.zone_name}`;
+    } else if (event.source === "interaction") {
+      const other = event.other_identity_name
+        ?? (event.other_tracker_id == null ? "persona" : `Persona ID ${event.other_tracker_id}`);
+      const zone = event.zone_name ? ` · ${event.zone_name}` : "";
+      description.textContent = `${event.identity_name} ↔ ${other}${zone}`;
+    } else {
+      description.textContent = `${event.identity_name}${event.tracker_id == null ? "" : ` · ID ${event.tracker_id}`}`;
+    }
 
     item.append(time, type, description);
     timelineList.appendChild(item);
@@ -261,7 +314,9 @@ function eventLabel(type) {
     RETURNED: "Retorno",
     EXIT: "Salida",
     ENTER_ZONE: "Entrada zona",
-    EXIT_ZONE: "Salida zona"
+    EXIT_ZONE: "Salida zona",
+    INTERACTION_START: "Interacción inicia",
+    INTERACTION_END: "Interacción termina"
   };
   return labels[type] ?? type;
 }
