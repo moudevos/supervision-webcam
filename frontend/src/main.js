@@ -121,9 +121,15 @@ async function runDetection() {
 }
 
 function renderTrackedPeople(trackStates) {
-  const tracks = [...trackStates].sort((a, b) => a.tracker_id - b.tracker_id);
+  const statusOrder = { visible: 0, lost: 1, out: 2 };
+  const tracks = [...trackStates].sort((a, b) => {
+    const statusDiff = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+    if (statusDiff !== 0) return statusDiff;
+    return a.tracker_id - b.tracker_id;
+  });
 
-  activeTrackCount.textContent = String(tracks.length);
+  const activeCount = tracks.filter((track) => track.status !== "out").length;
+  activeTrackCount.textContent = String(activeCount);
   activeTracks.replaceChildren();
 
   if (tracks.length === 0) {
